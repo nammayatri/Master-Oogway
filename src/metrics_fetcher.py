@@ -2,6 +2,7 @@ import json
 from load_config import load_config
 from rds_metrics import RDSMetricsFetcher
 from redis_metrics import RedisMetricsFetcher
+from deployment_checker import DeploymentChecker
 from datetime import datetime, timedelta
 import pytz
 
@@ -12,6 +13,7 @@ class MetricsFetcher:
         self.config = load_config()
         self.rds_fetcher = RDSMetricsFetcher(self.config)
         self.redis_fetcher = RedisMetricsFetcher(self.config)
+        self.deployment_checker = DeploymentChecker(self.config)
 
     # Function to fetch and analyze RDS metrics
     def fetch_and_analyze_rds_metrics(self):
@@ -55,6 +57,13 @@ class MetricsFetcher:
 
         print(f"Current Redis Metrics: {current_redis_metrics}")
         print(f"Past Redis Metrics: {past_redis_metrics}")
+
+    def get_recent_active_deployments(self):
+        """Fetch ACTIVE deployments created between `TIME_OFFSET_DAYS` and now."""
+        print("\n🚀 Fetching Recent Active Deployments...")
+        active_deployments = self.deployment_checker.get_recent_active_deployments()
+        print(f"Recent Active Deployments: {active_deployments}")
+        return active_deployments
 
     # Function to get the target datetime for fetching metrics
     def get_target_datetime(self, days_before=7, target_hour=10, target_minute=0, time_delta=60):
@@ -130,6 +139,7 @@ class MetricsFetcher:
 
 if __name__ == "__main__":
     fetcher = MetricsFetcher()
+    fetcher.get_recent_active_deployments()
     # fetcher.fetch_and_analyze_rds_metrics()
     # fetcher.fetch_and_analyze_redis_metrics()
     # print(fetcher.convert_time (str(datetime.now()), from_tz="IST"))
