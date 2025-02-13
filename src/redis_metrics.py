@@ -1,19 +1,19 @@
 import subprocess
 import boto3
-import os
 from datetime import datetime, timedelta, timezone
 import json
 import redis
 
 class RedisMetricsFetcher:
-    def __init__(self):
+    def __init__(self,config):
         """Initialize AWS CloudWatch and ElastiCache clients."""
-        self.region = os.getenv("AWS_REGION", "ap-south-1")
+        self.region = config.get("AWS_REGION", "ap-south-1")
         self.cloudwatch = boto3.client('cloudwatch', region_name=self.region)
         self.elasticache = boto3.client('elasticache', region_name=self.region)
-        self.default_period = int(os.getenv("DEFAULT_PERIOD", 60))  # Default to 60 seconds if not specified
-        self.cluster_id = os.getenv("REDIS_CLUSTER_ID", "beckn-redis-cluster-001")
-        self.max_bigkey_size_mb = int(os.getenv("MAX_BIGKEY_SIZE_MB", 10))  # Default to 10 MB if not specified
+        self.default_period = int(config.get("DEFAULT_PERIOD", 60))  # Default to 60 seconds if not specified
+        self.cluster_id = config.get("REDIS_CLUSTER_ID", "beckn-redis-cluster-001")
+        self.max_bigkey_size_mb = int(config.get("MAX_BIGKEY_SIZE_MB", 10))  # Default to 10 MB if not specified
+        self.redis_time_delta = config.get("REDIS_TIME_DELTA", {"hours": 1})
 
     def get_cache_instance_endpoints(self, cluster_instances):
         """
@@ -33,19 +33,19 @@ class RedisMetricsFetcher:
                     }
         return endpoints
 
-    def get_redis_cluster_metrics(self, metrics_start_time=None, metrics_end_time=None, redis_time_delta=None, period=None):
+    def get_redis_cluster_metrics(self, metrics_start_time=None, metrics_end_time=None):
         """
         Fetch Redis CPU utilization, memory usage, number of replicas, master nodes, and their endpoints.
         """
         if metrics_start_time:
             start_time = metrics_start_time
-        elif redis_time_delta:
-            start_time = datetime.now(timezone.utc) - timedelta(**redis_time_delta)
+        elif self.redis_time_delta:
+            start_time = datetime.now(timezone.utc) - timedelta(**self.redis_time_delta)
         else:
             raise ValueError("Either metrics_start_time or redis_time_delta must be provided")
         
         end_time = metrics_end_time if metrics_end_time else datetime.now(timezone.utc)    
-        period = period if period else self.default_period
+        period = self.default_period
 
         # Fetch Redis cluster details
         print(f"Fetching Redis cluster instances for {self.cluster_id} in region {self.region} time range between {start_time} and {end_time} with period {period} seconds")
@@ -138,6 +138,8 @@ class RedisMetricsFetcher:
         
         # Add number of replicas
         cluster_metrics["ReplicaCount"] = sum(1 for instance in cluster_metrics if cluster_metrics[instance]["Role"] == "Replica")
+        cluster_metrics["StartTime"] = str(start_time)
+        cluster_metrics["EndTime"] = str(end_time)
         cluster_metrics["MasterNodes"] = [{
             "InstanceId": instance,
             "Endpoint": cluster_metrics[instance]["Endpoint"],
@@ -214,8 +216,3 @@ class RedisMetricsFetcher:
         except Exception as e:
             print(f"Error fetching big keys: {e}")
             return []
-# Call the function
-redis_metrics_fetcher = RedisMetricsFetcher()
-metrics = redis_metrics_fetcher.get_redis_cluster_metrics(redis_time_delta={"hours": 1})
-metrics = redis_metrics_fetcher.get_bigkeys_with_size("")
-print(json.dumps(metrics, indent=2))

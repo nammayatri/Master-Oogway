@@ -1,0 +1,22 @@
+{
+    "AWS_REGION": "ap-south-1",
+    "CLUSTER_NAME": "eks-kurukshetra",
+    "RDS_CLUSTER_ID": "atlas-customer-cluster-v1-cluster",
+    "REDIS_CLUSTER_ID": "beckn-redis-cluster-001",
+    "DEFAULT_PERIOD": 60,
+    "MAX_BIGKEY_SIZE_MB": 10,
+    "RDS_TIME_DELTA": {"hours": 1},
+    "RDS_CPU_DIFFERENCE_THRESHOLD": 10,
+    "RDS_CONNECTIONS_DIFFERENCE_THRESHOLD": 10,
+    "REDIS_TIME_DELTA": {"hours": 1},
+    "REDIS_CPU_DIFFERENCE_THRESHOLD": 10,
+    "REDIS_CONNECTIONS_DIFFERENCE_THRESHOLD": 10,
+    "TIME_OFFSET_DAYS": 2,
+    "TARGET_HOURS": 13,
+    "TARGET_MINUTES": 0,
+    "PROMETHEUS_URL": "http://your-prometheus-server:9090",
+    "APPLICATION_METRICS_TIME_DELTA": {"minutes": 30},
+    "PROMETHEUS_QUERY_RANGE": "5m" 
+  }
+
+  
