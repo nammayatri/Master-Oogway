@@ -9,6 +9,8 @@ class RDSMetricsFetcher:
         self.default_period = int(config.get("DEFAULT_PERIOD", 60))  # Default to 60 seconds if not specified
         self.cluster_identifiers = config.get("RDS_CLUSTER_IDENTIFIERS", ["atlas-customer-cluster-v1-cluster"])
         self.rds_time_delta = config.get("RDS_TIME_DELTA", {"hours": 1})
+        self.cpu_threshold = config.get("RDS_CPU_DIFFERENCE_THRESHOLD", 10)
+        self.db_connections_threshold = config.get("RDS_CONNECTIONS_DIFFERENCE_THRESHOLD", 10)
 
     def get_rds_cluster_metrics(self, metrics_start_time=None, metrics_end_time=None, cluster_identifier=None):
         print("Fetching RDS cluster CPU utilization metrics")
@@ -82,4 +84,54 @@ class RDSMetricsFetcher:
         for cluster_identifier in self.cluster_identifiers:
             all_cluster_metrics[cluster_identifier] = self.get_rds_cluster_metrics(metrics_start_time, metrics_end_time, cluster_identifier)
         return all_cluster_metrics
+    
+    def detect_rds_anomalies(self,current_metrics, past_metrics):
+        """
+        Compare RDS metrics (past vs. current) and detect anomalies.
+
+        :param current_metrics: Dictionary containing current RDS metrics.
+        :param past_metrics: Dictionary containing past RDS metrics.
+        :param cpu_threshold: Percentage increase in CPU utilization to flag an anomaly.
+        :param db_connections_threshold: Absolute increase in database connections to flag an anomaly.
+        :return: List of detected anomalies with relevant metrics.
+        """
+        anomalies = []
+
+
+        cluster_name = list(current_metrics.keys())[0]  # Assuming single cluster
+        current_cluster = current_metrics[cluster_name]
+        past_cluster = past_metrics[cluster_name]
+
+        for instance in current_cluster:
+            if instance in ["StartTime", "EndTime", "ReplicaCount"]:
+                continue  # Skip metadata
+
+            if instance not in past_cluster:
+                continue  # Instance might not be present in past data
+
+            current_instance = current_cluster[instance]
+            past_instance = past_cluster[instance]
+
+            instance_anomalies = {"Issue Type": "", "Instance": instance, "Role": current_instance["Role"], "Issue": [], "Current_Metrics": {}, "Past_Metrics": {}}
+
+            # 🔹 **Check CPU Utilization Spike**
+            cpu_diff = current_instance["CPUUtilization"] - past_instance["CPUUtilization"]
+            if cpu_diff > self.cpu_threshold:
+                instance_anomalies["Issue Type"] = "DB CPU INCREASE"
+                instance_anomalies["Issue"].append(f"High CPU usage increase: {cpu_diff:.2f}% (Threshold: {self.cpu_threshold}%) from {past_instance['CPUUtilization']} to {current_instance['CPUUtilization']}")
+                instance_anomalies["Current_Metrics"]["CPUUtilization"] = current_instance["CPUUtilization"]
+                instance_anomalies["Past_Metrics"]["CPUUtilization"] = past_instance["CPUUtilization"]
+                anomalies.append(instance_anomalies)
+
+            # 🔹 **Check Database Connections Spike**
+            db_conn_diff = current_instance["DatabaseConnections"] - past_instance["DatabaseConnections"]
+            if db_conn_diff / past_instance["DatabaseConnections"] * 100 > self.db_connections_threshold:
+                instance_anomalies["Issue Type"] = "DB CONNECTIONS INCREASE"
+                instance_anomalies["Issue"].append(f"High DB connections increase: {db_conn_diff} (Threshold: {self.db_connections_threshold}) from {past_instance['DatabaseConnections']} to {current_instance['DatabaseConnections']}")
+                instance_anomalies["Current_Metrics"]["DatabaseConnections"] = current_instance["DatabaseConnections"]
+                instance_anomalies["Past_Metrics"]["DatabaseConnections"] = past_instance["DatabaseConnections"]
+                anomalies.append(instance_anomalies)
+
+
+        return {"Anomalies": anomalies}
 
