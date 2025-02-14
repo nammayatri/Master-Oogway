@@ -11,7 +11,7 @@ class RedisMetricsFetcher:
         self.cloudwatch = boto3.client('cloudwatch', region_name=self.region)
         self.elasticache = boto3.client('elasticache', region_name=self.region)
         self.default_period = int(config.get("DEFAULT_PERIOD", 60))  # Default to 60 seconds if not specified
-        self.cluster_id = config.get("REDIS_CLUSTER_ID", "beckn-redis-cluster-001")
+        self.cluster_ids = config.get("REDIS_CLUSTER_IDENTIFIERS", ["beckn-redis-cluster-001"])
         self.max_bigkey_size_mb = int(config.get("MAX_BIGKEY_SIZE_MB", 10))  # Default to 10 MB if not specified
         self.redis_time_delta = config.get("REDIS_TIME_DELTA", {"hours": 1})
 
@@ -33,7 +33,7 @@ class RedisMetricsFetcher:
                     }
         return endpoints
 
-    def get_redis_cluster_metrics(self, metrics_start_time=None, metrics_end_time=None):
+    def get_redis_cluster_metrics(self, metrics_start_time=None, metrics_end_time=None, cluster_id=None):
         """
         Fetch Redis CPU utilization, memory usage, number of replicas, master nodes, and their endpoints.
         """
@@ -48,11 +48,11 @@ class RedisMetricsFetcher:
         period = self.default_period
 
         # Fetch Redis cluster details
-        print(f"Fetching Redis cluster instances for {self.cluster_id} in region {self.region} time range between {start_time} and {end_time} with period {period} seconds")
-        cluster_response = self.elasticache.describe_replication_groups(ReplicationGroupId=self.cluster_id)
+        print(f"Fetching Redis cluster instances for {cluster_id} in region {self.region} time range between {start_time} and {end_time} with period {period} seconds")
+        cluster_response = self.elasticache.describe_replication_groups(ReplicationGroupId=cluster_id)
         
         if "ReplicationGroups" not in cluster_response or not cluster_response["ReplicationGroups"]:
-            raise ValueError(f"No Redis cluster found with identifier: {self.cluster_id}")
+            raise ValueError(f"No Redis cluster found with identifier: {cluster_id}")
         
         node_groups = cluster_response["ReplicationGroups"][0].get("NodeGroups", [])
         cluster_metrics = {}
@@ -146,8 +146,17 @@ class RedisMetricsFetcher:
             "Port": cluster_metrics[instance]["Port"]
         } for instance in master_nodes]
         
-        print(f"Fetched metrics for Redis cluster {self.cluster_id}")
+        print(f"Fetched metrics for Redis cluster {cluster_id}")
         return cluster_metrics
+
+    def get_all_redis_cluster_metrics(self, metrics_start_time=None, metrics_end_time=None):
+        """
+        Fetch metrics for all Redis clusters.
+        """
+        all_cluster_metrics = {}
+        for cluster_id in self.cluster_ids:
+            all_cluster_metrics[cluster_id] = self.get_redis_cluster_metrics(metrics_start_time, metrics_end_time, cluster_id)
+        return all_cluster_metrics
 
     # Fetch the bigkeys from Redis  
     

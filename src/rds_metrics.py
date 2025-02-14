@@ -7,10 +7,10 @@ class RDSMetricsFetcher:
         self.cloudwatch = boto3.client('cloudwatch', region_name=self.region)
         self.rds_client = boto3.client('rds', region_name=self.region)
         self.default_period = int(config.get("DEFAULT_PERIOD", 60))  # Default to 60 seconds if not specified
-        self.cluster_identifier = config.get("RDS_CLUSTER_ID", "atlas-customer-cluster-v1-cluster")
+        self.cluster_identifiers = config.get("RDS_CLUSTER_IDENTIFIERS", ["atlas-customer-cluster-v1-cluster"])
         self.rds_time_delta = config.get("RDS_TIME_DELTA", {"hours": 1})
 
-    def get_rds_cluster_cpu_utilization(self, metrics_start_time=None, metrics_end_time=None):
+    def get_rds_cluster_metrics(self, metrics_start_time=None, metrics_end_time=None, cluster_identifier=None):
         print("Fetching RDS cluster CPU utilization metrics")
         """
         Fetch CPU utilization metrics for all instances in the given RDS cluster.
@@ -30,15 +30,15 @@ class RDSMetricsFetcher:
         period = self.default_period
 
         # Fetch all DB instances in the cluster
-        print(f"Fetching RDS cluster instances for {self.cluster_identifier} in region {self.region} time range between {start_time} and {end_time} with period {period} seconds")
-        cluster_response = self.rds_client.describe_db_clusters(DBClusterIdentifier=self.cluster_identifier)
+        print(f"Fetching RDS cluster instances for {cluster_identifier} in region {self.region} time range between {start_time} and {end_time} with period {period} seconds")
+        cluster_response = self.rds_client.describe_db_clusters(DBClusterIdentifier=cluster_identifier)
         
         if "DBClusters" not in cluster_response or not cluster_response["DBClusters"]:
-            raise ValueError(f"No cluster found with identifier: {self.cluster_identifier}")
+            raise ValueError(f"No cluster found with identifier: {cluster_identifier}")
 
         cluster_instances = cluster_response["DBClusters"][0]["DBClusterMembers"]
 
-        print(f"Found {len(cluster_instances)} instances in cluster {self.cluster_identifier}")
+        print(f"Found {len(cluster_instances)} instances in cluster {cluster_identifier}")
         
         cluster_metrics = {}
         cluster_metrics["StartTime"] = str(start_time)
@@ -74,6 +74,12 @@ class RDSMetricsFetcher:
 
         cluster_metrics["ReplicaCount"] = len([instance for instance in cluster_instances if not instance["IsClusterWriter"]])
 
-        print(f"Fetched metrics for {len(cluster_instances)} instances in cluster {self.cluster_identifier}")
+        print(f"Fetched metrics for {len(cluster_instances)} instances in cluster {cluster_identifier}")
         return cluster_metrics
+    
+    def get_all_rds_cluster_metrics (self, metrics_start_time=None, metrics_end_time=None):
+        all_cluster_metrics = {}
+        for cluster_identifier in self.cluster_identifiers:
+            all_cluster_metrics[cluster_identifier] = self.get_rds_cluster_metrics(metrics_start_time, metrics_end_time, cluster_identifier)
+        return all_cluster_metrics
 

@@ -1,8 +1,8 @@
 {
   "AWS_REGION": "ap-south-1",
   "KUBERNETES_CLUSTER_NAME": "beckn-uat",
-  "RDS_CLUSTER_ID": "atlas-customer-cluster-v1-cluster",
-  "REDIS_CLUSTER_ID": "beckn-redis-cluster-001",
+  "RDS_CLUSTER_IDENTIFIERS": ["atlas-customer-cluster-v1-cluster"],
+  "REDIS_CLUSTER_IDENTIFIERS": ["beckn-redis-cluster-001"],
   "DEFAULT_PERIOD": 60,
   "MAX_BIGKEY_SIZE_MB": 10,
   "RDS_TIME_DELTA": {"hours": 1},
