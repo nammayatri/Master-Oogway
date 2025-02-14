@@ -3,6 +3,7 @@ from load_config import load_config
 from rds_metrics import RDSMetricsFetcher
 from redis_metrics import RedisMetricsFetcher
 from deployment_checker import DeploymentChecker
+from application_metrics import ApplicationMetricsFetcher
 from datetime import datetime, timedelta
 import pytz
 
@@ -14,6 +15,8 @@ class MetricsFetcher:
         self.rds_fetcher = RDSMetricsFetcher(self.config)
         self.redis_fetcher = RedisMetricsFetcher(self.config)
         self.deployment_checker = DeploymentChecker(self.config)
+        self.app_metrics_fetcher = ApplicationMetricsFetcher(self.config)
+
 
     # Function to fetch and analyze RDS metrics
     def fetch_and_analyze_rds_metrics(self):
@@ -66,7 +69,7 @@ class MetricsFetcher:
         return active_deployments
 
     # Function to get the target datetime for fetching metrics
-    def get_target_datetime(self, days_before=7, target_hour=10, target_minute=0, time_delta=60):
+    def get_target_datetime(self, days_before=7, target_hour=10, target_minute=0, time_delta={"hours": 1}):
         """
         Get a datetime object:
         - If `target_hour:target_minute` is earlier than the current time, return today's date with that time.
@@ -100,7 +103,7 @@ class MetricsFetcher:
         past_end_time = past_datetime
 
         print(f"✅ Current Start Time: {current_start_time} | Current End Time: {current_end_time}" )
-        print(f"✅ Past Start Time: {past_start_time} | Past End Time: {past_end_time}" )
+        print(f"✅ Past Start Time: {past_start_time} | Past End Time: {past_end_time}\n" )
 
         return ([current_start_time, current_end_time], [past_start_time, past_end_time])
 
@@ -139,7 +142,12 @@ class MetricsFetcher:
 
 if __name__ == "__main__":
     fetcher = MetricsFetcher()
-    fetcher.get_recent_active_deployments()
+    current_datetime, past_datetime = fetcher.get_target_datetime()
+    # fetcher.get_recent_active_deployments()
+    # res = fetcher.app_metrics_fetcher.fetch_application_metrics(start_time=current_datetime[0], end_time=current_datetime[1])
+    # print("new_res :=", json.dumps(res, indent=2)) 
+    # resold = fetcher.app_metrics_fetcher.fetch_application_metrics(start_time=past_datetime[0], end_time=past_datetime[1])
+    # print("old_res :=", json.dumps(resold, indent=2))
     # fetcher.fetch_and_analyze_rds_metrics()
     # fetcher.fetch_and_analyze_redis_metrics()
     # print(fetcher.convert_time (str(datetime.now()), from_tz="IST"))
