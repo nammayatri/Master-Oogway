@@ -14,6 +14,11 @@ class RedisMetricsFetcher:
         self.cluster_ids = config.get("REDIS_CLUSTER_IDENTIFIERS", ["beckn-redis-cluster-001"])
         self.max_bigkey_size_mb = int(config.get("MAX_BIGKEY_SIZE_MB", 10))  # Default to 10 MB if not specified
         self.redis_time_delta = config.get("REDIS_TIME_DELTA", {"hours": 1})
+        self.cpu_threshold = float(config.get("REDIS_CPU_DIFFERENCE_THRESHOLD", 10.0))
+        self.memory_threshold = float(config.get("REDIS_MEMORY_DIFFERENCE_THRESHOLD", 10.0))
+        self.capacity_threshold = float(config.get("REDIS_CAPACITY_DIFFERENCE_THRESHOLD", 10.0))
+        self.allow_instance_anomalies = config.get("ALLOW_INSTANCE_ANOMALIES", False)
+
 
     def get_cache_instance_endpoints(self, cluster_instances):
         """
@@ -225,3 +230,124 @@ class RedisMetricsFetcher:
         except Exception as e:
             print(f"Error fetching big keys: {e}")
             return []
+        
+    from datetime import datetime, timezone
+
+
+    def detect_anomalies(self, current_data, past_data):
+        """
+        Detects anomalies by comparing current and past Redis cluster metrics.
+        
+        :param current_data: Current Redis cluster data
+        :param past_data: Past Redis cluster data
+        :return: Dictionary containing detected anomalies
+        """
+        cluster_anomolies = {}
+        cluster_name = list(current_data.keys())
+        for cluster_name in cluster_name:
+            anomalies = []
+
+            current_cluster = current_data[cluster_name]
+            past_cluster = past_data.get(cluster_name, {})
+
+            # ✅ Detect if new nodes were added (Check if any node was None in past)
+            for node, metrics in current_cluster.items():
+                if node.startswith("beckn-redis-cluster") and isinstance(metrics, dict):
+                    past_metrics = past_cluster.get(node, {})
+                    if ((not past_metrics or any(v is None for v in past_metrics.values())) and past_metrics.get("Role","None") == "Primary"):
+                        anomalies.append({
+                            "Cluster": cluster_name,
+                            "Instance": node,
+                            "Issue": "New Redis node detected",
+                            "Anomaly Level": "NEW_INSTANCE"
+                        })
+
+            # ✅ Compute cluster-wide averages
+            current_totals = {"CPU": 0, "Memory": 0, "Capacity": 0, "EngineCPU": 0}
+            past_totals = {"CPU": 0, "Memory": 0, "Capacity": 0, "EngineCPU": 0}
+            current_count, past_count = 0, 0
+
+            for node, metrics in current_cluster.items():
+                if node.startswith("beckn-redis-cluster") and isinstance(metrics, dict):
+                    if metrics["CPUUtilization"] is not None and metrics["Role"] == "Primary":
+                        current_totals["CPU"] += metrics["CPUUtilization"]
+                        current_count += 1
+                    if metrics["MemoryUsage"] is not None and metrics["Role"] == "Primary":
+                        current_totals["Memory"] += metrics["MemoryUsage"]
+                    if metrics["DatabaseCapacityUsage"] is not None and metrics["Role"] == "Primary":
+                        current_totals["Capacity"] += metrics["DatabaseCapacityUsage"]
+                    if metrics["EngineCPUUtilization"] is not None and metrics["Role"] == "Primary":
+                        current_totals["EngineCPU"] += metrics["EngineCPUUtilization"]
+
+            for node, metrics in past_cluster.items():
+                if node.startswith("beckn-redis-cluster") and isinstance(metrics, dict):
+                    if metrics["CPUUtilization"] is not None and metrics["Role"] == "Primary":
+                        past_totals["CPU"] += metrics["CPUUtilization"]
+                        past_count += 1
+                    if metrics["MemoryUsage"] is not None and metrics["Role"] == "Primary":
+                        past_totals["Memory"] += metrics["MemoryUsage"]
+                    if metrics["DatabaseCapacityUsage"] is not None and metrics["Role"] == "Primary":
+                        past_totals["Capacity"] += metrics["DatabaseCapacityUsage"]
+                    if metrics["EngineCPUUtilization"] is not None and metrics["Role"] == "Primary":
+                        past_totals["EngineCPU"] += metrics["EngineCPUUtilization"]
+
+            # ✅ Compute cluster-wide averages
+            current_avg = {k: v / max(1, current_count) for k, v in current_totals.items()}
+            past_avg = {k: v / max(1, past_count) for k, v in past_totals.items()}
+
+            # ✅ Detect cluster-level metric spikes
+            for key, threshold in [("CPU", self.cpu_threshold), 
+                                ("Memory", self.memory_threshold), 
+                                ("Capacity", self.capacity_threshold), 
+                                ("EngineCPU", self.cpu_threshold)]:
+                diff = current_avg[key] - past_avg[key]
+                if diff > threshold:
+                    print(f"Cluster: {cluster_name}, Key: {key}, Diff: {diff}")
+                    anomalies.append({
+                        "Cluster": cluster_name,
+                        "Issue": f"High {key} Usage Increase Detected in Redis Cluster!!!",
+                        "Past_Avg": round(past_avg[key], 2),
+                        "Current_Avg": round(current_avg[key], 2),
+                        "Increased By": round(diff, 2),
+                        "Threshold": threshold,
+                        "Anomaly Level": "CLUSTER"
+                    })
+
+            # ✅ Detect instance-level metric spikes
+            if len(anomalies) == 0 or not self.allow_instance_anomalies:
+                print(f"Skipping instance-level anomaly detection for {cluster_name}")
+                cluster_anomolies[cluster_name] = anomalies
+                continue
+            for node, metrics in current_cluster.items():
+                if node.startswith("beckn-redis-cluster") and isinstance(metrics, dict) and metrics["Role"] == "Primary":
+                    past_metrics = past_cluster.get(node, {})
+                    instance_anomalies = {
+                        "Cluster": cluster_name,
+                        "Instance": node,
+                        "Issues": [],
+                        "Anomaly Level": "SINGLE_INSTANCE"
+                    }
+
+                    for key, threshold in [("CPUUtilization", self.cpu_threshold), 
+                                        ("MemoryUsage", self.memory_threshold), 
+                                        ("DatabaseCapacityUsage", self.capacity_threshold), 
+                                        ("EngineCPUUtilization", self.cpu_threshold)]:
+                        if key in metrics and key in past_metrics:
+                            if metrics[key] is not None and past_metrics[key] is not None:
+                                diff = metrics[key] - past_metrics[key]
+                                print(f"Node: {node}, Key: {key}, Diff: {diff}")
+                                if diff > threshold:
+                                    instance_anomalies["Issues"].append({
+                                        "Metric": key,
+                                        "Issue": f"High {key} Usage Increase Detected in Redis Node !!!",
+                                        "Past_Value": round(past_metrics[key], 2),
+                                        "Current_Value": round(metrics[key], 2),
+                                        "Increased By": round(diff, 2),
+                                        "Threshold": threshold
+                                    })
+
+                    if instance_anomalies["Issues"]:
+                        anomalies.append(instance_anomalies)
+            cluster_anomolies[cluster_name] = anomalies
+
+        return {"Anomalies": cluster_anomolies}
