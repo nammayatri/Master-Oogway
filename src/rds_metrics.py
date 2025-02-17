@@ -1,137 +1,246 @@
 import boto3
 from datetime import datetime, timedelta, timezone
-class RDSMetricsFetcher:
-    def __init__(self,config):
-        """Initialize AWS CloudWatch client."""
-        self.region = config.get("AWS_REGION", "ap-south-1")
-        self.cloudwatch = boto3.client('cloudwatch', region_name=self.region)
-        self.rds_client = boto3.client('rds', region_name=self.region)
-        self.default_period = int(config.get("DEFAULT_PERIOD", 60))  # Default to 60 seconds if not specified
-        self.cluster_identifiers = config.get("RDS_CLUSTER_IDENTIFIERS", ["atlas-customer-cluster-v1-cluster"])
-        self.rds_time_delta = config.get("RDS_TIME_DELTA", {"hours": 1})
-        self.cpu_threshold = config.get("RDS_CPU_DIFFERENCE_THRESHOLD", 10)
-        self.db_connections_threshold = config.get("RDS_CONNECTIONS_DIFFERENCE_THRESHOLD", 10)
+import json
 
-    def get_rds_cluster_metrics(self, metrics_start_time=None, metrics_end_time=None, cluster_identifier=None):
-        print("Fetching RDS cluster CPU utilization metrics")
-        """
-        Fetch CPU utilization metrics for all instances in the given RDS cluster.
-        
-        :param metrics_start_time: The start time for fetching the metrics
-        :param metrics_end_time: The end time for fetching the metrics (defaults to now if not provided)
-        """
-        if metrics_start_time:
-            start_time = metrics_start_time
-        elif self.rds_time_delta:
-            start_time = datetime.now(timezone.utc) - timedelta(**self.rds_time_delta)
-        else:
-            raise ValueError("Either metrics_start_time or rds_time_delta must be provided")
-        
-        # Set end time to now if not provided
-        end_time = metrics_end_time if metrics_end_time else datetime.now(timezone.utc)    
+class RDSMetricsFetcher:
+    def __init__(self, config):
+        """Initialize AWS CloudWatch & RDS client."""
+        self.region = config.get("AWS_REGION", "ap-south-1")
+        self.cloudwatch = boto3.client("cloudwatch", region_name=self.region)
+        self.rds_client = boto3.client("rds", region_name=self.region)
+        self.default_period = int(config.get("DEFAULT_PERIOD", 60))  
+        self.cluster_identifiers = config.get("RDS_CLUSTER_IDENTIFIERS", ["atlas-customer-cluster-v1-cluster", "atlas-driver-v1-cluster"])
+        self.cpu_threshold = config.get("RDS_CPU_DIFFERENCE_THRESHOLD", 10)
+        self.conn_threshold = config.get("RDS_CPU_DIFFERENCE_THRESHOLD", 100)
+        self.replica_threshold = config.get("REPLICA_THRESHOLD", 1)
+
+    def fetch_rds_metrics(self, start_time=None, end_time=None):
+        """Fetch CPU & Database Connections metrics for all instances in the given time range."""
+        if not start_time:
+            start_time = datetime.now(timezone.utc) - timedelta(hours=1)
+        if not end_time:
+            end_time = datetime.now(timezone.utc)
+
         period = self.default_period
 
-        # Fetch all DB instances in the cluster
-        print(f"Fetching RDS cluster instances for {cluster_identifier} in region {self.region} time range between {start_time} and {end_time} with period {period} seconds")
-        cluster_response = self.rds_client.describe_db_clusters(DBClusterIdentifier=cluster_identifier)
-        
-        if "DBClusters" not in cluster_response or not cluster_response["DBClusters"]:
-            raise ValueError(f"No cluster found with identifier: {cluster_identifier}")
+        # ✅ Get all RDS instances
+        instances = self.get_all_rds_instances()
+        if not instances:
+            print("❌ No RDS instances found.")
+            return {}
 
-        cluster_instances = cluster_response["DBClusters"][0]["DBClusterMembers"]
+        # ✅ Prepare metric queries
+        metric_queries = [
+            {
+                "Id": f"cpu_{instance.replace('-', '_')}",
+                "MetricStat": {
+                    "Metric": {
+                        "Namespace": "AWS/RDS",
+                        "MetricName": "CPUUtilization",
+                        "Dimensions": [{"Name": "DBInstanceIdentifier", "Value": instance}]
+                    },
+                    "Period": period,
+                    "Stat": "Average"
+                }
+            }
+            for instance in instances
+        ] + [
+            {
+                "Id": f"conn_{instance.replace('-', '_')}",
+                "MetricStat": {
+                    "Metric": {
+                        "Namespace": "AWS/RDS",
+                        "MetricName": "DatabaseConnections",
+                        "Dimensions": [{"Name": "DBInstanceIdentifier", "Value": instance}]
+                    },
+                    "Period": period,
+                    "Stat": "Average"
+                }
+            }
+            for instance in instances
+        ]
 
-        print(f"Found {len(cluster_instances)} instances in cluster {cluster_identifier}")
-        
-        cluster_metrics = {}
-        cluster_metrics["StartTime"] = str(start_time)
-        cluster_metrics["EndTime"] = str(end_time)
-        for instance in cluster_instances:
-            instance_id = instance["DBInstanceIdentifier"]
-            instance_role = "Writer" if instance["IsClusterWriter"] else "Reader"
-            cluster_metrics[instance_id] = {"Role": instance_role}
-            
-            # Fetch CPU Utilization
-            cpu_response = self.cloudwatch.get_metric_statistics(
-                Namespace="AWS/RDS",
-                MetricName="CPUUtilization",
-                Dimensions=[{"Name": "DBInstanceIdentifier", "Value": instance_id}],
-                StartTime=start_time,
-                EndTime=end_time,
-                Period=period,
-                Statistics=["Average"]
-            )
-            cluster_metrics[instance_id]['CPUUtilization'] = cpu_response["Datapoints"][-1]["Average"] if cpu_response["Datapoints"] else None
+        # ✅ Fetch CloudWatch Metrics
+        response = self.cloudwatch.get_metric_data(
+            MetricDataQueries=metric_queries,
+            StartTime=start_time,
+            EndTime=end_time,
+            ScanBy="TimestampAscending"
+        )
 
-            # Fetch DB Connections
-            connections_response = self.cloudwatch.get_metric_statistics(
-                Namespace="AWS/RDS",
-                MetricName="DatabaseConnections",
-                Dimensions=[{"Name": "DBInstanceIdentifier", "Value": instance_id}],
-                StartTime=start_time,
-                EndTime=end_time,
-                Period=period,
-                Statistics=["Average"]
-            )
-            cluster_metrics[instance_id]['DatabaseConnections'] = connections_response["Datapoints"][-1]["Average"] if connections_response["Datapoints"] else None
+        # ✅ Get instance-to-cluster mapping
+        instance_cluster_mapping = self.get_instance_roles_and_clusters(instances)
 
-        cluster_metrics["ReplicaCount"] = len([instance for instance in cluster_instances if not instance["IsClusterWriter"]])
+        # ✅ Process & filter results (Remove instances with no metrics)
+        metrics_data = {}
 
-        print(f"Fetched metrics for {len(cluster_instances)} instances in cluster {cluster_identifier}")
-        return cluster_metrics
-    
-    def get_all_rds_cluster_metrics (self, metrics_start_time=None, metrics_end_time=None):
-        all_cluster_metrics = {}
-        for cluster_identifier in self.cluster_identifiers:
-            all_cluster_metrics[cluster_identifier] = self.get_rds_cluster_metrics(metrics_start_time, metrics_end_time, cluster_identifier)
-        return all_cluster_metrics
-    
-    def detect_rds_anomalies(self,current_metrics, past_metrics):
-        """
-        Compare RDS metrics (past vs. current) and detect anomalies.
+        for result in response["MetricDataResults"]:
+            if not result["Values"]:
+                continue  # Skip instances with no data
 
-        :param current_metrics: Dictionary containing current RDS metrics.
-        :param past_metrics: Dictionary containing past RDS metrics.
-        :param cpu_threshold: Percentage increase in CPU utilization to flag an anomaly.
-        :param db_connections_threshold: Absolute increase in database connections to flag an anomaly.
-        :return: List of detected anomalies with relevant metrics.
-        """
+            instance_id = result["Id"].split("_", 1)[1].replace("_", "-")
+            cluster_name = instance_cluster_mapping.get(instance_id, {}).get("Cluster")
+
+            if not cluster_name or cluster_name not in self.cluster_identifiers:
+                continue  # Skip unrecognized instances
+
+            # Initialize cluster if not already present
+            if cluster_name not in metrics_data:
+                metrics_data[cluster_name] = {
+                    "StartTime": str(start_time),
+                    "EndTime": str(end_time),
+                    "Instances": {},
+                    "ReplicaCount": 0,
+                    "WriterCount": 0,
+                    "TotalReplicaCPU": 0,
+                    "TotalWriterCPU": 0,
+                    "TotalReplicaConnections": 0,
+                    "TotalWriterConnections": 0
+                }
+
+            # Extract metric values
+            avg_value = round(sum(result["Values"]) / len(result["Values"]), 2)
+            role = instance_cluster_mapping.get(instance_id, {}).get("Role", "Unknown")
+
+            # Add instance data
+            if instance_id not in metrics_data[cluster_name]["Instances"]:
+                metrics_data[cluster_name]["Instances"][instance_id] = {"Role": role}
+
+            if result["Id"].startswith("cpu"):
+                metrics_data[cluster_name]["Instances"][instance_id]["CPUUtilization"] = avg_value
+                if role == "Replica":
+                    metrics_data[cluster_name]["ReplicaCount"] += 1
+                    metrics_data[cluster_name]["TotalReplicaCPU"] += avg_value
+                elif role == "Writer":
+                    metrics_data[cluster_name]["WriterCount"] += 1
+                    metrics_data[cluster_name]["TotalWriterCPU"] += avg_value
+
+            elif result["Id"].startswith("conn"):
+                metrics_data[cluster_name]["Instances"][instance_id]["DatabaseConnections"] = avg_value
+                if role == "Replica":
+                    metrics_data[cluster_name]["TotalReplicaConnections"] += avg_value
+                elif role == "Writer":
+                    metrics_data[cluster_name]["TotalWriterConnections"] += avg_value
+
+        return metrics_data
+
+    def get_all_rds_instances(self):
+        """Retrieve all RDS instances from CloudWatch."""
+        instances = []
+        response = self.cloudwatch.list_metrics(
+            Namespace="AWS/RDS",
+            MetricName="CPUUtilization",
+            Dimensions=[{"Name": "DBInstanceIdentifier"}]
+        )
+        for metric in response.get("Metrics", []):
+            for dimension in metric["Dimensions"]:
+                if dimension["Name"] == "DBInstanceIdentifier":
+                    instances.append(dimension["Value"])
+        return list(set(instances))
+
+    def get_instance_roles_and_clusters(self, instances):
+        """Retrieve role & cluster info for each RDS instance."""
+        instance_cluster_role = {}
+
+        try:
+            # 🔹 Fetch instance details
+            response = self.rds_client.describe_db_instances()
+            for db_instance in response["DBInstances"]:
+                instance_id = db_instance["DBInstanceIdentifier"]
+                cluster_id = db_instance.get("DBClusterIdentifier", None)
+                role = "Writer" if db_instance.get("ReadReplicaSourceDBInstanceIdentifier") is None else "Replica"
+
+                instance_cluster_role[instance_id] = {"Cluster": cluster_id, "Role": role}
+
+            # 🔹 Fetch Aurora Clusters
+            cluster_response = self.rds_client.describe_db_clusters()
+            for cluster in cluster_response.get("DBClusters", []):
+                for member in cluster["DBClusterMembers"]:
+                    instance_id = member["DBInstanceIdentifier"]
+                    role = "Writer" if member["IsClusterWriter"] else "Replica"
+                    instance_cluster_role[instance_id] = {"Cluster": cluster["DBClusterIdentifier"], "Role": role}
+
+        except Exception as e:
+            print(f"⚠️ Error fetching RDS instance roles: {e}")
+
+        return instance_cluster_role
+
+    def detect_rds_anomalies(self, current_metrics, past_metrics):
+        """Compare current and past RDS metrics to detect anomalies."""
         anomalies = []
 
+        for cluster_name, current_cluster in current_metrics.items():
+            past_cluster = past_metrics.get(cluster_name, {})
 
-        cluster_name = list(current_metrics.keys())[0]  # Assuming single cluster
-        current_cluster = current_metrics[cluster_name]
-        past_cluster = past_metrics[cluster_name]
+            if not past_cluster:
+                anomalies.append({"Cluster": cluster_name, "Issue": "No historical data available"})
+                continue
 
-        for instance in current_cluster:
-            if instance in ["StartTime", "EndTime", "ReplicaCount"]:
-                continue  # Skip metadata
+            # ✅ Check replica count changes
+            current_replicas = current_cluster.get("ReplicaCount", 0)
+            past_replicas = past_cluster.get("ReplicaCount", 0)
 
-            if instance not in past_cluster:
-                continue  # Instance might not be present in past data
+            current_writers = current_cluster.get("WriterCount", 0)
+            past_writers = past_cluster.get("WriterCount", 0)
 
-            current_instance = current_cluster[instance]
-            past_instance = past_cluster[instance]
+            if current_replicas > past_replicas:
+                anomalies.append({
+                    "Cluster": cluster_name,
+                    "Issue": f"Increase in Replica Count by {current_replicas - past_replicas}",
+                    "Past_ReplicaCount": past_replicas,
+                    "Current_ReplicaCount": current_replicas,
+                    "Older Replicas": [instance for instance, data in past_cluster.get("Instances", {}).items() if data.get("Role") == "Replica"],
+                    "New Replicas": [instance for instance, data in current_cluster.get("Instances", {}).items() if data.get("Role") == "Replica"]
+                })
 
-            instance_anomalies = {"Issue Type": "", "Instance": instance, "Role": current_instance["Role"], "Issue": [], "Current_Metrics": {}, "Past_Metrics": {}}
-
-            # 🔹 **Check CPU Utilization Spike**
-            cpu_diff = current_instance["CPUUtilization"] - past_instance["CPUUtilization"]
-            if cpu_diff > self.cpu_threshold:
-                instance_anomalies["Issue Type"] = "DB CPU INCREASE"
-                instance_anomalies["Issue"].append(f"High CPU usage increase: {cpu_diff:.2f}% (Threshold: {self.cpu_threshold}%) from {past_instance['CPUUtilization']} to {current_instance['CPUUtilization']}")
-                instance_anomalies["Current_Metrics"]["CPUUtilization"] = current_instance["CPUUtilization"]
-                instance_anomalies["Past_Metrics"]["CPUUtilization"] = past_instance["CPUUtilization"]
-                anomalies.append(instance_anomalies)
-
-            # 🔹 **Check Database Connections Spike**
-            db_conn_diff = current_instance["DatabaseConnections"] - past_instance["DatabaseConnections"]
-            if db_conn_diff / past_instance["DatabaseConnections"] * 100 > self.db_connections_threshold:
-                instance_anomalies["Issue Type"] = "DB CONNECTIONS INCREASE"
-                instance_anomalies["Issue"].append(f"High DB connections increase: {db_conn_diff} (Threshold: {self.db_connections_threshold}) from {past_instance['DatabaseConnections']} to {current_instance['DatabaseConnections']}")
-                instance_anomalies["Current_Metrics"]["DatabaseConnections"] = current_instance["DatabaseConnections"]
-                instance_anomalies["Past_Metrics"]["DatabaseConnections"] = past_instance["DatabaseConnections"]
-                anomalies.append(instance_anomalies)
-
+            # ✅ Check CPU & Connection spikes
+            for metric, label,issue in [("TotalReplicaCPU", "Replica", "DB CPU"), ("TotalWriterCPU", "Writer", "DB CPU"),
+                                  ("TotalReplicaConnections", "Replica", "DB Connection"), ("TotalWriterConnections", "Writer", "DB Connection")]:
+                past_avg = past_cluster.get(metric, 0) / max(1, past_replicas if "Replica" in label else past_writers)
+                current_avg = current_cluster.get(metric, 0) / max(1, current_replicas if "Replica" in label else current_writers)
+                if current_avg > past_avg + (self.cpu_threshold if "CPU" in metric else self.conn_threshold):
+                    anomalies.append({
+                        "Cluster": cluster_name,
+                        "Issue": f"Increase in {label} {issue} by {round(current_avg - past_avg, 2)}",
+                        "Past_Avg": round(past_avg, 2),
+                        "Current_Avg": round(current_avg, 2)
+                    })
 
         return {"Anomalies": anomalies}
+
+
+
+# if __name__ == "__main__":
+#     fetcher = RDSMetricsFetcher({
+#         "AWS_REGION": "ap-south-1",
+#         "DEFAULT_PERIOD": 3600,
+#         "CPU_THRESHOLD": 10,
+#         "CONN_THRESHOLD": 10,
+#         "REPLICA_THRESHOLD": 1
+#     })
+
+#     current_metrics = fetcher.fetch_rds_metrics(datetime.now(timezone.utc) - timedelta(hours=1), datetime.now(timezone.utc))
+#     past_metrics = fetcher.fetch_rds_metrics(datetime.now(timezone.utc) - timedelta(days=7) - timedelta(hours=1) , datetime.now(timezone.utc) - timedelta(days=7))
+
+
+#     print("\n🔹 Current RDS Metrics:" , current_metrics)
+#     print("\n🔹 Past RDS Metrics:" , past_metrics)
+
+#     anomalies = fetcher.detect_rds_anomalies(current_metrics, past_metrics)
+
+#     print("\n🔹 Anomalies Detected:",anomalies)
+    # print(anomalies)
+    # cluster_names = ["atlas-driver-v1-cluster", "atlas-customer-cluster-v1-cluster"]
+    # all_instances = fetcher.get_all_rds_instances()
+    # print(fetcher.get_instance_roles_and_clusters(all_instances))
+
+
+
+
+
+
+
+
+
+
 
