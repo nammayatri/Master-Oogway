@@ -33,8 +33,9 @@ class MetricsFetcher:
         # Get the current and past datetime to fetch metrics
         current_datetime, past_datetime = self.get_target_datetime(days_before=TIME_OFFSET_DAYS, target_hour=TARGET_HOURS, target_minute=TARGET_MINUTES, time_delta=RDS_TIME_DELTA)
 
-        current_rds_metrics = self.rds_fetcher.get_all_rds_cluster_metrics(metrics_start_time=current_datetime[0], metrics_end_time=current_datetime[1])
-        past_rds_metrics = self.rds_fetcher.get_all_rds_cluster_metrics(metrics_start_time=past_datetime[0], metrics_end_time=past_datetime[1])
+        current_rds_metrics = self.rds_fetcher.fetch_rds_metrics(start_time=current_datetime[0], end_time=current_datetime[1])
+        past_rds_metrics = self.rds_fetcher.fetch_rds_metrics(start_time=past_datetime[0], end_time=past_datetime[1])
+        print(f"Anamoly Detection for RDS Metrics", self.rds_fetcher.detect_rds_anomalies(current_rds_metrics, past_rds_metrics))
 
         print(f"Current RDS Metrics: {current_rds_metrics}")
         print(f"Past RDS Metrics: {past_rds_metrics}")
@@ -57,6 +58,7 @@ class MetricsFetcher:
 
         current_redis_metrics = self.redis_fetcher.get_all_redis_cluster_metrics(metrics_start_time=current_datetime[0], metrics_end_time=current_datetime[1])
         past_redis_metrics = self.redis_fetcher.get_all_redis_cluster_metrics(metrics_start_time=past_datetime[0], metrics_end_time=past_datetime[1])
+        print(f"Anamoly Detection for Redis Metrics", self.redis_fetcher.detect_anomalies(current_redis_metrics, past_redis_metrics))
 
         print(f"Current Redis Metrics: {current_redis_metrics}")
         print(f"Past Redis Metrics: {past_redis_metrics}")
@@ -144,11 +146,12 @@ if __name__ == "__main__":
     fetcher = MetricsFetcher()
     current_datetime, past_datetime = fetcher.get_target_datetime()
     # fetcher.get_recent_active_deployments()
-    res = fetcher.app_metrics_fetcher.fetch_all_prom_metrics(start_time=current_datetime[0], end_time=current_datetime[1])
-    print("new_res :=", json.dumps(res, indent=2)) 
+    # res = fetcher.app_metrics_fetcher.fetch_all_prom_metrics(start_time=current_datetime[0], end_time=current_datetime[1])
+    # print("new_res :=", json.dumps(res, indent=2)) 
     # resold = fetcher.app_metrics_fetcher.fetch_application_request_metrics(start_time=past_datetime[0], end_time=past_datetime[1])
     # print("old_res :=", json.dumps(resold, indent=2))
-    # fetcher.fetch_and_analyze_rds_metrics()
+    fetcher.fetch_and_analyze_rds_metrics()
     # fetcher.fetch_and_analyze_redis_metrics()
+    # past 7 days date 
     # print(fetcher.convert_time (str(datetime.now()), from_tz="IST"))
     # print(datetime.now())

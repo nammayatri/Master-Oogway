@@ -137,33 +137,75 @@ class RDSMetricsFetcher:
                 if dimension["Name"] == "DBInstanceIdentifier":
                     instances.append(dimension["Value"])
         return list(set(instances))
-
+    
     def get_instance_roles_and_clusters(self, instances):
-        """Retrieve role & cluster info for each RDS instance."""
+        """
+        Retrieves the role (Writer/Replica) and cluster name for each RDS instance.
+        """
         instance_cluster_role = {}
 
         try:
-            # 🔹 Fetch instance details
+            print("🔹 Fetching RDS instance roles and clusters...")
+            # 🔹 **Fetch all RDS instances (includes standalone DBs)**
             response = self.rds_client.describe_db_instances()
             for db_instance in response["DBInstances"]:
                 instance_id = db_instance["DBInstanceIdentifier"]
-                cluster_id = db_instance.get("DBClusterIdentifier", None)
+                cluster_id = db_instance.get("DBClusterIdentifier", None)  # If None, it's a standalone DB
                 role = "Writer" if db_instance.get("ReadReplicaSourceDBInstanceIdentifier") is None else "Replica"
 
-                instance_cluster_role[instance_id] = {"Cluster": cluster_id, "Role": role}
+                if instance_id not in instance_cluster_role:
+                    instance_cluster_role[instance_id] = {}
+                instance_cluster_role[instance_id]["Cluster"] = cluster_id
+                instance_cluster_role[instance_id]["Role"] = role
+                    
 
-            # 🔹 Fetch Aurora Clusters
             cluster_response = self.rds_client.describe_db_clusters()
             for cluster in cluster_response.get("DBClusters", []):
+                cluster_id = cluster["DBClusterIdentifier"]
                 for member in cluster["DBClusterMembers"]:
                     instance_id = member["DBInstanceIdentifier"]
+                    if instance_id not in instance_cluster_role:
+                        instance_cluster_role[cluster_id] = {}
                     role = "Writer" if member["IsClusterWriter"] else "Replica"
-                    instance_cluster_role[instance_id] = {"Cluster": cluster["DBClusterIdentifier"], "Role": role}
+                    instance_cluster_role[instance_id]["Cluster"] = cluster_id
+                    instance_cluster_role[instance_id]["Role"] = role
+
+            for cluster_name in self.cluster_identifiers:
+                instances_cluster_mapping = self.check_rds_instance_in_cluster_log_group(cluster_name, instances)
+                for instance_id in instances_cluster_mapping:
+                    if instance_id not in instance_cluster_role:
+                        instance_cluster_role[instance_id] = {}
+                        instance_cluster_role[instance_id]["Cluster"] = cluster_name
+                        instance_cluster_role[instance_id]["Role"] = "Replica"
+                            
 
         except Exception as e:
             print(f"⚠️ Error fetching RDS instance roles: {e}")
-
+        print("instance_cluster_role", instance_cluster_role)
         return instance_cluster_role
+
+    # using this for deleted instances if they are still present in the logs and are part of which cluster
+    def check_rds_instance_in_cluster_log_group(self, cluster_name, instances):
+        """
+        Check if an RDS instance was part of a given cluster based on CloudWatch Logs.
+        
+        :param cluster_name: Name of the RDS cluster
+        :param instance_id: RDS instance identifier
+        :param region: AWS region
+        :return: True if instance logs exist in the cluster, False otherwise
+        """
+        logs_client = boto3.client("logs", region_name=self.region)
+        log_group_name = f"/aws/rds/cluster/{cluster_name}/postgresql"
+        cluster_instances = {}
+        try:
+            response = logs_client.describe_log_streams(logGroupName=log_group_name)
+            for log_stream in response.get("logStreams", []):
+                for instance_id in instances:
+                    if instance_id in log_stream["logStreamName"]:
+                        cluster_instances[instance_id] = True
+        except Exception as e:
+            print(f"⚠️ Error fetching RDS logs: {e}")
+        return cluster_instances
 
     def detect_rds_anomalies(self, current_metrics, past_metrics):
         """Compare current and past RDS metrics to detect anomalies."""
