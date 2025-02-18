@@ -13,7 +13,7 @@ class RedisMetricsFetcher:
         self.default_period = int(config.get("DEFAULT_PERIOD", 60))  # Default to 60 seconds if not specified
         self.cluster_ids = config.get("REDIS_CLUSTER_IDENTIFIERS", ["beckn-redis-cluster-001"])
         self.max_bigkey_size_mb = int(config.get("MAX_BIGKEY_SIZE_MB", 10))  # Default to 10 MB if not specified
-        self.redis_time_delta = config.get("REDIS_TIME_DELTA", {"hours": 1})
+        self.redis_time_delta = config.get("TIME_DELTA", {"hours": 1})
         self.cpu_threshold = float(config.get("REDIS_CPU_DIFFERENCE_THRESHOLD", 10.0))
         self.memory_threshold = float(config.get("REDIS_MEMORY_DIFFERENCE_THRESHOLD", 10.0))
         self.capacity_threshold = float(config.get("REDIS_CAPACITY_DIFFERENCE_THRESHOLD", 10.0))
@@ -65,7 +65,7 @@ class RedisMetricsFetcher:
         all_instances = []
 
         for node_group in node_groups:
-            node_members = node_group["NodeGroupMembers"]
+            node_members = node_group.get("NodeGroupMembers", [])
             if not node_members:
                 continue
 
@@ -78,7 +78,7 @@ class RedisMetricsFetcher:
         instance_endpoints = self.get_cache_instance_endpoints(all_instances)
 
         for node_group in node_groups:
-            for member in node_group["NodeGroupMembers"]:
+            for member in node_group.get("NodeGroupMembers", []):
                 instance_id = member["CacheClusterId"]
                 instance_role = "Primary" if instance_id in master_nodes else "Replica"
                 
@@ -216,8 +216,7 @@ class RedisMetricsFetcher:
 
                 if key_size is None:  # If BIGKEYS didn't provide size, call MEMORY USAGE
                     key_size = client.memory_usage(key_name)
-        
-                    print(key_name)
+    
                     print(f"Key: {key_name}, Type: {key_type}, Size: {key_size}")
 
                 # Convert size to MB and check against threshold
@@ -242,7 +241,7 @@ class RedisMetricsFetcher:
         :param past_data: Past Redis cluster data
         :return: Dictionary containing detected anomalies
         """
-        cluster_anomolies = {}
+        redis_anomalies = []
         cluster_name = list(current_data.keys())
         for cluster_name in cluster_name:
             anomalies = []
@@ -302,21 +301,19 @@ class RedisMetricsFetcher:
                                 ("EngineCPU", self.cpu_threshold)]:
                 diff = current_avg[key] - past_avg[key]
                 if diff > threshold:
-                    print(f"Cluster: {cluster_name}, Key: {key}, Diff: {diff}")
                     anomalies.append({
                         "Cluster": cluster_name,
-                        "Issue": f"High {key} Usage Increase Detected in Redis Cluster!!!",
+                        "Issue": f"High {key} Usage Increase Detected in Redis Clusterc {cluster_name} !!!",
                         "Past_Avg": round(past_avg[key], 2),
                         "Current_Avg": round(current_avg[key], 2),
                         "Increased By": round(diff, 2),
-                        "Threshold": threshold,
-                        "Anomaly Level": "CLUSTER"
+                        "Threshold": threshold
                     })
 
             # ✅ Detect instance-level metric spikes
             if len(anomalies) == 0 or not self.allow_instance_anomalies:
-                print(f"Skipping instance-level anomaly detection for {cluster_name}")
-                cluster_anomolies[cluster_name] = anomalies
+                print(f"Skipping instance-level anomaly detection for {cluster_name} as detected anomalies: {anomalies} and allow_instance_anomalies: {self.allow_instance_anomalies}")
+                redis_anomalies.extend(anomalies)
                 continue
             for node, metrics in current_cluster.items():
                 if node.startswith("beckn-redis-cluster") and isinstance(metrics, dict) and metrics["Role"] == "Primary":
@@ -324,8 +321,7 @@ class RedisMetricsFetcher:
                     instance_anomalies = {
                         "Cluster": cluster_name,
                         "Instance": node,
-                        "Issues": [],
-                        "Anomaly Level": "SINGLE_INSTANCE"
+                        "Issues": []
                     }
 
                     for key, threshold in [("CPUUtilization", self.cpu_threshold), 
@@ -335,11 +331,10 @@ class RedisMetricsFetcher:
                         if key in metrics and key in past_metrics:
                             if metrics[key] is not None and past_metrics[key] is not None:
                                 diff = metrics[key] - past_metrics[key]
-                                print(f"Node: {node}, Key: {key}, Diff: {diff}")
                                 if diff > threshold:
                                     instance_anomalies["Issues"].append({
                                         "Metric": key,
-                                        "Issue": f"High {key} Usage Increase Detected in Redis Node !!!",
+                                        "Issue": f"High {key} Usage Increase Detected in Redis Node {node} !!!",
                                         "Past_Value": round(past_metrics[key], 2),
                                         "Current_Value": round(metrics[key], 2),
                                         "Increased By": round(diff, 2),
@@ -348,6 +343,6 @@ class RedisMetricsFetcher:
 
                     if instance_anomalies["Issues"]:
                         anomalies.append(instance_anomalies)
-            cluster_anomolies[cluster_name] = anomalies
+            redis_anomalies.extend(anomalies)
 
-        return cluster_anomolies
+        return redis_anomalies

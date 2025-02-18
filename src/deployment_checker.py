@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from load_config import load_config
 from kubernetes.client import ApiClient
 import os
+from time_function import TimeFunction
 
 
 class DeploymentChecker:
@@ -17,6 +18,7 @@ class DeploymentChecker:
         self.namespace = config_data.get("KUBERNETES_NAMESPACE", "default")
         self.time_offset_days = config_data.get("TIME_OFFSET_DAYS", 7)
         self.region = config_data.get("AWS_REGION", "ap-south-1")
+        self.time_function = TimeFunction()
 
         # Get Kubernetes API Client for the EKS Cluster
         # self.kube_client = self.get_kube_client(self.cluster_name)
@@ -65,7 +67,7 @@ class DeploymentChecker:
 
     def get_recent_active_deployments(self):
         """Fetch ACTIVE deployments created between `TIME_OFFSET_DAYS` and now."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc) 
         past_time = now - timedelta(days=self.time_offset_days)
 
         kube_client = self.get_kube_client(self.cluster_name)
@@ -85,7 +87,7 @@ class DeploymentChecker:
             if available_replicas and available_replicas > 0 and past_time <= deploy_time <= now:
                 active_deployments.append({
                     "name": deploy.metadata.name,
-                    "created_at": deploy_time.strftime("%Y-%m-%d %H:%M:%S UTC"),
+                    "created_at": self.time_function.convert_time(deploy_time.strftime("%Y-%m-%d %H:%M:%S"), from_tz="UTC"),
                     "available_replicas": available_replicas
                 })
 

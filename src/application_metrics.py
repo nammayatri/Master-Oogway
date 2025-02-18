@@ -174,7 +174,7 @@ class ApplicationMetricsFetcher:
         start, end = self.time_to_epoch(start_time, end_time)
         # **🔹 Total Request Count (All 2xx,3xx,4xx,5xx)
         total_istio_requests_query = f"sum(increase(istio_requests_total{{destination_service_name!=\"istio-telemetry\", reporter=\"destination\"}}[{self.query_step_range}])) by (destination_service_name, response_code)"
-        print("🚀 Fetching Total Isto request service level: ", total_istio_requests_query,"\n")
+        print("🚀 Fetching Total Istio request service level: ", total_istio_requests_query,"\n")
         total_istio_requests = self.fetch_metric(total_istio_requests_query, start, end,self.query_step_range)
         aggregated_istio_requests = self.aggregate_istio_metric_by_labels(total_istio_requests)
 
@@ -184,7 +184,7 @@ class ApplicationMetricsFetcher:
         start, end = self.time_to_epoch(start_time, end_time)
         # **🔹 Total Request Count (All 2xx,3xx,4xx,5xx)
         total_istio_requests_query = f"sum by (destination_service_name, pod, response_code, response_flags) ((label_replace(increase(istio_requests_total{{response_code!~\"(2..|3..|4..)\", destination_service_name!=\"istio-telemetry\", reporter=\"destination\"}}[{self.query_step_range}]), \"pod_ip\", \"$1\", \"instance\", \"^(.*):[0-9]+$\") * on (pod_ip) group_left(pod) (max by (pod_ip, pod) (kube_pod_info))))"
-        print("🚀 Fetching Total Isto request erros pod level: ", total_istio_requests_query,"\n")
+        print("🚀 Fetching Total Istio request erros pod level: ", total_istio_requests_query,"\n")
         total_istio_requests = self.fetch_metric(total_istio_requests_query, start, end,self.query_step_range)
         aggregated_istio_requests = self.aggregate_istio_metric_by_labels(total_istio_requests)
         return aggregated_istio_requests
@@ -344,7 +344,7 @@ class ApplicationMetricsFetcher:
         :return: List of anomalies detected
         """
         anomalies = []
-
+        # print(current_data, past_data)
         # Configuration mapping for thresholds
         threshold_config = {
             "APPLICATION_METRICS": self.application_metrics,  # Loaded from config
@@ -380,10 +380,11 @@ class ApplicationMetricsFetcher:
                         anomalies.append({
                             "MetricsType": metrics_type,
                             "Service/API": service,
+                            "Issue": f"High increase in {status_code} requests in {service}",
                             "StatusCode": status_code,
-                            "CurrentValue": current_value,
-                            "PastValue": past_value,
-                            "PercentageChange": round(percentage_change, 2),
+                            "Current_Avg": current_value,
+                            "Past_Avg": past_value,
+                            "Percentage Change": round(percentage_change, 2),
                             "Threshold": change_threshold
                         })
 

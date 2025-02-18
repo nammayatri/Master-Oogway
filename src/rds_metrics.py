@@ -181,7 +181,6 @@ class RDSMetricsFetcher:
 
         except Exception as e:
             print(f"⚠️ Error fetching RDS instance roles: {e}")
-        print("instance_cluster_role", instance_cluster_role)
         return instance_cluster_role
 
     # using this for deleted instances if they are still present in the logs and are part of which cluster
@@ -244,6 +243,7 @@ class RDSMetricsFetcher:
                     anomalies.append({
                         "Cluster": cluster_name,
                         "Issue": f"Increase in {label} {issue} by {round(current_avg - past_avg, 2)}",
+                        "Increased By": round(current_avg - past_avg, 2),
                         "Past_Avg": round(past_avg, 2),
                         "Current_Avg": round(current_avg, 2)
                     })

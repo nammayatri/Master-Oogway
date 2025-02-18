@@ -1,24 +1,22 @@
 {
   "AWS_REGION": "ap-south-1",
-  "KUBERNETES_CLUSTER_NAME": "beckn-uat",
-  "RDS_CLUSTER_IDENTIFIERS": ["atlas-customer-cluster-v1-cluster", "atlas-driver-cluster-v1-cluster"],
+  "KUBERNETES_CLUSTER_NAME": "eks-kurukshetra",
+  "RDS_CLUSTER_IDENTIFIERS": ["atlas-customer-cluster-v1-cluster", "atlas-driver-v1-cluster"],
   "REDIS_CLUSTER_IDENTIFIERS": ["beckn-redis-cluster-001"],
   "DEFAULT_PERIOD": 60,
   "MAX_BIGKEY_SIZE_MB": 10,
-  "RDS_TIME_DELTA": {"hours": 1},
   "RDS_CPU_DIFFERENCE_THRESHOLD": 10,
   "RDS_CONNECTIONS_DIFFERENCE_THRESHOLD": 100,
   "REPLICA_THRESHOLD": 1,
   "ALLOW_INSTANCE_ANOMALIES": false,
-  "REDIS_TIME_DELTA": {"hours": 1},
   "REDIS_CPU_DIFFERENCE_THRESHOLD": 10,
   "REDIS_MEMORY_DIFFERENCE_THRESHOLD": 10,
   "REDIS_CAPACITY_DIFFERENCE_THRESHOLD": 10,
+  "TIME_DELTA": {"hours": 1},
   "TIME_OFFSET_DAYS": 7,
   "TARGET_HOURS": 13,
   "TARGET_MINUTES": 0,
   "PROMETHEUS_URL": "http://your-prometheus-server:9090",
-  "APPLICATION_METRICS_TIME_DELTA": {"minutes": 30},
   "KUBERNETES_NAMESPACE": "atlas",
   "SLACK_BOT_TOKEN": "xoxb-xxxxxxxxxxxx-xxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
   "SLACK_CHANNEL_ID": "xxxxxxxxxxxx",
@@ -47,33 +45,33 @@
   "APP_TIME_DELTA": {"hours": 1},
   "ISTIO_METRICS": {
     "REQUEST_COUNT_THRESHOLDS": {
-      "2XX": 5000,
-      "3XX": 500,
-      "4XX": 500,
-      "5XX": 50,
+      "2xx": 5000,
+      "3xx": 500,
+      "4xx": 500,
+      "5xx": 50,
       "0DC": 100
     },
     "PERCENTAGE_CHANGE_THRESHOLDS": {
-      "2XX": 50,
-      "3XX": 20,
-      "4XX": 30,
-      "5XX": 40,
+      "2xx": 50,
+      "3xx": 20,
+      "4xx": 30,
+      "5xx": 40,
       "0DC": 25
     }
   },
   "APPLICATION_METRICS": {
     "REQUEST_COUNT_THRESHOLDS": {
-      "2XX": 10000,
-      "3XX": 1000,
-      "4XX": 500,
-      "5XX": 100,
+      "2xx": 10000,
+      "3xx": 1000,
+      "4xx": 500,
+      "5xx": 100,
       "0DC": 100
     },
     "PERCENTAGE_CHANGE_THRESHOLDS": {
-      "2XX": 50,
-      "3XX": 20,
-      "4XX": 30,
-      "5XX": 40,
+      "2xx": 50,
+      "3xx": 20,
+      "4xx": 30,
+      "5xx": 40,
       "0DC": 25
     }
   },
