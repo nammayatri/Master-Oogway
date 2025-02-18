@@ -35,10 +35,12 @@ class MetricsFetcher:
 
         current_rds_metrics = self.rds_fetcher.fetch_rds_metrics(start_time=current_datetime[0], end_time=current_datetime[1])
         past_rds_metrics = self.rds_fetcher.fetch_rds_metrics(start_time=past_datetime[0], end_time=past_datetime[1])
-        print(f"Anamoly Detection for RDS Metrics", self.rds_fetcher.detect_rds_anomalies(current_rds_metrics, past_rds_metrics))
+        # print(f"Anamoly Detection for RDS Metrics", self.rds_fetcher.detect_rds_anomalies(current_rds_metrics, past_rds_metrics))
+        anomaly = self.rds_fetcher.detect_rds_anomalies(current_rds_metrics, past_rds_metrics)
+        return {"rds_anomaly": anomaly}
 
-        print(f"Current RDS Metrics: {current_rds_metrics}")
-        print(f"Past RDS Metrics: {past_rds_metrics}")
+        # print(f"Current RDS Metrics: {current_rds_metrics}")
+        # print(f"Past RDS Metrics: {past_rds_metrics}")
 
 
     # Function to fetch and analyze Redis metrics
@@ -59,9 +61,11 @@ class MetricsFetcher:
         current_redis_metrics = self.redis_fetcher.get_all_redis_cluster_metrics(metrics_start_time=current_datetime[0], metrics_end_time=current_datetime[1])
         past_redis_metrics = self.redis_fetcher.get_all_redis_cluster_metrics(metrics_start_time=past_datetime[0], metrics_end_time=past_datetime[1])
         print(f"Anamoly Detection for Redis Metrics", self.redis_fetcher.detect_anomalies(current_redis_metrics, past_redis_metrics))
+        anomaly = self.redis_fetcher.detect_anomalies(current_redis_metrics, past_redis_metrics)
+        return {"redis_anomaly": anomaly}
 
-        print(f"Current Redis Metrics: {current_redis_metrics}")
-        print(f"Past Redis Metrics: {past_redis_metrics}")
+        # print(f"Current Redis Metrics: {current_redis_metrics}")
+        # print(f"Past Redis Metrics: {past_redis_metrics}")
 
     def get_recent_active_deployments(self):
         """Fetch ACTIVE deployments created between `TIME_OFFSET_DAYS` and now."""
@@ -69,6 +73,29 @@ class MetricsFetcher:
         active_deployments = self.deployment_checker.get_recent_active_deployments()
         print(f"Recent Active Deployments: {active_deployments}")
         return active_deployments
+    
+    def fetch_and_analyze_application_and_istio_metrics(self):
+        """Fetch and analyze application and Istio metrics."""
+        print("\n🚀 Fetching & Analyzing Application & Istio Metrics...")
+        config = self.config
+        APP_TIME_DELTA = config.get("APP_TIME_DELTA", {"hours": 1})
+        TIME_OFFSET_DAYS = config.get("TIME_OFFSET_DAYS", 7)
+        TARGET_HOURS = config.get("TARGET_HOURS", 12)
+        TARGET_MINUTES = config.get("TARGET_MINUTES", 30)
+
+        print(f"APP_TIME_DELTA: {APP_TIME_DELTA} | TIME_OFFSET_DAYS: {TIME_OFFSET_DAYS} | TARGET_HOURS: {TARGET_HOURS} | TARGET_MINUTES: {TARGET_MINUTES}")
+
+        # Get the current and past datetime to fetch metrics
+        current_datetime, past_datetime = self.get_target_datetime(days_before=TIME_OFFSET_DAYS, target_hour=TARGET_HOURS, target_minute=TARGET_MINUTES, time_delta=APP_TIME_DELTA)
+
+        current_app_metrics = self.app_metrics_fetcher.fetch_all_prom_metrics(start_time=current_datetime[0], end_time=current_datetime[1])
+        past_app_metrics = self.app_metrics_fetcher.fetch_all_prom_metrics(start_time=past_datetime[0], end_time=past_datetime[1])
+        # print(f"Anamoly Detection for Application Metrics", self.app_metrics_fetcher.detect_anomalies(current_app_metrics, past_app_metrics))
+        anomaly = self.app_metrics_fetcher.detect_application_istio_anomalies(current_app_metrics, past_app_metrics)
+        return {"app_anomaly": anomaly}
+
+        # print(f"Current Application Metrics: {current_app_metrics}")
+        # print(f"Past Application Metrics: {past_app_metrics}")
 
     # Function to get the target datetime for fetching metrics
     def get_target_datetime(self, days_before=7, target_hour=10, target_minute=0, time_delta={"hours": 1}):
@@ -145,13 +172,8 @@ class MetricsFetcher:
 if __name__ == "__main__":
     fetcher = MetricsFetcher()
     current_datetime, past_datetime = fetcher.get_target_datetime()
-    # fetcher.get_recent_active_deployments()
-    # res = fetcher.app_metrics_fetcher.fetch_all_prom_metrics(start_time=current_datetime[0], end_time=current_datetime[1])
-    # print("new_res :=", json.dumps(res, indent=2)) 
-    # resold = fetcher.app_metrics_fetcher.fetch_application_request_metrics(start_time=past_datetime[0], end_time=past_datetime[1])
-    # print("old_res :=", json.dumps(resold, indent=2))
-    fetcher.fetch_and_analyze_rds_metrics()
-    # fetcher.fetch_and_analyze_redis_metrics()
-    # past 7 days date 
-    # print(fetcher.convert_time (str(datetime.now()), from_tz="IST"))
-    # print(datetime.now())
+    rds_anomaly = fetcher.fetch_and_analyze_rds_metrics()
+    redis_anomaly = fetcher.fetch_and_analyze_redis_metrics()
+    application_anomaly = fetcher.fetch_and_analyze_application_and_istio_metrics()
+    # if any anomaly the check if deployment has been done 
+    active_deployments = fetcher.get_recent_active_deployments()
