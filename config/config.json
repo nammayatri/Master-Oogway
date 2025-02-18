@@ -7,7 +7,8 @@
   "MAX_BIGKEY_SIZE_MB": 10,
   "RDS_TIME_DELTA": {"hours": 1},
   "RDS_CPU_DIFFERENCE_THRESHOLD": 10,
-  "RDS_CONNECTIONS_DIFFERENCE_THRESHOLD": 10,
+  "RDS_CONNECTIONS_DIFFERENCE_THRESHOLD": 100,
+  "REPLICA_THRESHOLD": 1,
   "ALLOW_INSTANCE_ANOMALIES": false,
   "REDIS_TIME_DELTA": {"hours": 1},
   "REDIS_CPU_DIFFERENCE_THRESHOLD": 10,
@@ -45,5 +46,18 @@
   ],
   "API_SUCCESS_DROP_THRESHOLD": 0.9,
   "API_FAILURE_DROP_THRESHOLD": 0.1,
-  "API_SUCCESS_INCREASE_THRESHOLD": 0.2
+  "API_SUCCESS_INCREASE_THRESHOLD": 0.2,
+  "APPLICATION_CPU_THRESHOLD": 80,
+  "APPLICATION_MEMORY_THRESHOLD": 90,
+  "CONSECUTIVE_DATAPOINTS": 3,
+  "SKIP_MEMORY_CHECK_SERVICES": [
+    "beckn-driver-offer-allocator-service",
+    "beckn-lts-healthcheck",
+    "beckn-metro",
+    "beckn-osrm",
+    "galactus",
+    "beckn-rider-app-scheduler-production",
+    "beckn-bpp-dashboard"
+  ],
+  "SKIP_CPU_CHECK_SERVICES": []
 }

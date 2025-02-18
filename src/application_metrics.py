@@ -2,6 +2,7 @@ import requests
 import matplotlib.pyplot as plt
 import datetime
 import os
+from datetime import datetime, timedelta, timezone
 class ApplicationMetricsFetcher:
     def __init__(self, config):
         """
@@ -11,6 +12,12 @@ class ApplicationMetricsFetcher:
         self.vmselect_url = config.get("VMSELECT_URL", f"http://localhost:8481/select/0/prometheus/api/v1")
         self.query_step_range = config.get("QUERY_STEP_RANGE", "10m")
         self.namespace = config.get("KUBERNETES_NAMESPACE", "atlas")
+        self.cpu_threshold = config.get("APPLICATION_CPU_THRESHOLD", 80)
+        self.memory_threshold = config.get("APPLICATION_MEMORY_THRESHOLD", 80)
+        self.consecutive_datapoints = config.get("CONSECUTIVE_DATAPOINTS", 2)
+        self.skip_memory_anomaly = config.get("SKIP_MEMORY_CHECK_SERVICES", [])
+        self.skip_cpu_anomaly = config.get("SKIP_CPU_CHECK_SERVICES", [])
+
 
     def time_to_epoch(self, start_time, end_time):
         """
@@ -196,15 +203,19 @@ class ApplicationMetricsFetcher:
     
 
 
-    def detect_and_plot_anomalies_per_pod(self, cpu_data, memory_data, threshold,output_dir="anomaly_plots"):
+    def detect_and_plot_anomalies_per_pod(self, cpu_data, memory_data, output_dir="anomaly_plots"):
         """
-        Detects anomalies where two consecutive data points exceed the threshold
+        Detects anomalies where n consecutive data points exceed the threshold
         and plots CPU and memory usage **only** for pods that have anomalies.
 
         :param cpu_data: JSON response containing CPU usage metrics
         :param memory_data: JSON response containing memory usage metrics
-        :param threshold: Threshold value for anomaly detection
         """
+        cpu_threshold = self.cpu_threshold
+        memory_threshold = self.memory_threshold
+        consecutive_datapoints = self.consecutive_datapoints
+        skip_memory_anomaly = self.skip_memory_anomaly
+        skip_cpu_anomaly = self.skip_cpu_anomaly
         def extract_values(metric_data):
             """Extract timestamps, values, and pods from metric data."""
             if not metric_data or "data" not in metric_data or "result" not in metric_data["data"]:
@@ -220,13 +231,13 @@ class ApplicationMetricsFetcher:
 
             return pod_data
 
-        def detect_anomalies(values,consecutive_datpoints=2):
+        def detect_anomalies(values, threshold=80):
             anomalies = []
             count = 0  # Counter to track consecutive threshold breaches
             for i in range(len(values) - 1):
                 if values[i] > threshold:
                     count += 1
-                    if count >= consecutive_datpoints:
+                    if count >= consecutive_datapoints:
                         anomalies.append(i)
                 else:
                     count = 0  
@@ -243,26 +254,27 @@ class ApplicationMetricsFetcher:
                     pass  
 
         def convert_epoch_to_time(epoch_list):
-            """Convert epoch timestamps to human-readable time format."""
-            return [datetime.datetime.utcfromtimestamp(ts).strftime('%H:%M') for ts in epoch_list]
+            """Convert epoch timestamps to human-readable time format in Indian Standard Time (IST)."""
+            return [
+                (datetime.fromtimestamp(ts, tz=timezone.utc) + timedelta(hours=5, minutes=30)).strftime('%H:%M')
+                for ts in epoch_list
+            ]
         saved_files = []
         os.makedirs(output_dir, exist_ok=True)
         # clean this directory
         clean_directory(output_dir)
         cpu_pod_data = extract_values(cpu_data)
         mem_pod_data = extract_values(memory_data)
-
-        for pod in set(cpu_pod_data.keys()).union(set(mem_pod_data.keys())):
+        pods = set(cpu_pod_data.keys()).union(set(mem_pod_data.keys()))
+        for pod in pods:
             cpu_anomalies, mem_anomalies = [], []
 
             # Check CPU anomalies
-            if pod in cpu_pod_data:
-                cpu_anomalies = detect_anomalies(cpu_pod_data[pod]["values"])
-
+            if pod in cpu_pod_data and not any (pod.startswith(service) for service in skip_cpu_anomaly):
+                cpu_anomalies = detect_anomalies(cpu_pod_data[pod]["values"], cpu_threshold)
             # Check Memory anomalies
-            if pod in mem_pod_data:
-                mem_anomalies = detect_anomalies(mem_pod_data[pod]["values"])
-
+            if pod in mem_pod_data and not any (pod.startswith(service) for service in skip_memory_anomaly):
+                mem_anomalies = detect_anomalies(mem_pod_data[pod]["values"], memory_threshold)
             # **Plot only if there are anomalies**
             if cpu_anomalies or mem_anomalies:
                 plt.figure(figsize=(12, 6))
@@ -291,7 +303,8 @@ class ApplicationMetricsFetcher:
                 plt.xticks(range(0, len(cpu_timestamps), 2), cpu_timestamps[::2], rotation=45, ha="right")
                 plt.ylabel("Usage (%)")
                 plt.title(f"CPU & Memory Usage for: {pod} - {cpu_pod_data[pod]['node']}")
-                plt.axhline(y=threshold, color='pink', linestyle='--', label=f"Threshold: {threshold}%")
+                plt.axhline(y=cpu_threshold, color='pink', linestyle='--', label=f"CPU Threshold: {cpu_threshold}%")
+                plt.axhline(y=memory_threshold, color='orange', linestyle='--', label=f"Memory Threshold: {memory_threshold}%")
                 plt.legend()
                 plt.grid(True, linestyle="--", alpha=0.5)
                 
@@ -302,12 +315,14 @@ class ApplicationMetricsFetcher:
                 plt.close()
                 saved_files.append(file_path)
 
+        return {"per_pod_anomalies": saved_files}
+
 
 
 
     def fetch_all_prom_metrics(self, start_time=None, end_time=None):
         """
-        Fetch all critical application-level API metrics and calculate totals.
+        Fetch all application and Istio metrics.
         """
         app_metrics = self.fetch_application_request_metrics(start_time, end_time)
         istio_metrics = self.fetch_istio_metrics(start_time, end_time)
