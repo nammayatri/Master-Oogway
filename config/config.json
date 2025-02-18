@@ -44,9 +44,39 @@
     "/ui/driver/ride/:rideId/start/",
     "/ui/driver/ride/:rideId/end/"
   ],
-  "API_SUCCESS_DROP_THRESHOLD": 0.9,
-  "API_FAILURE_DROP_THRESHOLD": 0.1,
-  "API_SUCCESS_INCREASE_THRESHOLD": 0.2,
+  "APP_TIME_DELTA": {"hours": 1},
+  "ISTIO_METRICS": {
+    "REQUEST_COUNT_THRESHOLDS": {
+      "2XX": 5000,
+      "3XX": 500,
+      "4XX": 500,
+      "5XX": 50,
+      "0DC": 100
+    },
+    "PERCENTAGE_CHANGE_THRESHOLDS": {
+      "2XX": 50,
+      "3XX": 20,
+      "4XX": 30,
+      "5XX": 40,
+      "0DC": 25
+    }
+  },
+  "APPLICATION_METRICS": {
+    "REQUEST_COUNT_THRESHOLDS": {
+      "2XX": 10000,
+      "3XX": 1000,
+      "4XX": 500,
+      "5XX": 100,
+      "0DC": 100
+    },
+    "PERCENTAGE_CHANGE_THRESHOLDS": {
+      "2XX": 50,
+      "3XX": 20,
+      "4XX": 30,
+      "5XX": 40,
+      "0DC": 25
+    }
+  },
   "APPLICATION_CPU_THRESHOLD": 80,
   "APPLICATION_MEMORY_THRESHOLD": 90,
   "CONSECUTIVE_DATAPOINTS": 3,

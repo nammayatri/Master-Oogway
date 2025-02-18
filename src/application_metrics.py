@@ -17,6 +17,8 @@ class ApplicationMetricsFetcher:
         self.consecutive_datapoints = config.get("CONSECUTIVE_DATAPOINTS", 2)
         self.skip_memory_anomaly = config.get("SKIP_MEMORY_CHECK_SERVICES", [])
         self.skip_cpu_anomaly = config.get("SKIP_CPU_CHECK_SERVICES", [])
+        self.istio_metrics = config.get("ISTIO_METRICS", [])
+        self.application_metrics = config.get("APPLICATION_METRICS", [])
 
 
     def time_to_epoch(self, start_time, end_time):
@@ -332,7 +334,66 @@ class ApplicationMetricsFetcher:
             "istio_metrics": istio_metrics
         }
         return result
-        
     
-    
+    def detect_application_istio_anomalies(self, current_data, past_data):
+        """
+        Detect anomalies by checking the percentage increase in metrics from past data to current data.
 
+        :param current_data: Dictionary with current data (e.g. from today's metrics)
+        :param past_data: Dictionary with past data (e.g. from previous metrics)
+        :return: List of anomalies detected
+        """
+        anomalies = []
+
+        # Configuration mapping for thresholds
+        threshold_config = {
+            "APPLICATION_METRICS": self.application_metrics,  # Loaded from config
+            "ISTIO_METRICS": self.istio_metrics  # Loaded from config
+        }
+
+        # Function to detect anomalies for a given dataset (either application_metrics or istio_metrics)
+        def check_anomalies(metrics_type, current_metrics, past_metrics, thresholds):
+            request_thresholds = thresholds["REQUEST_COUNT_THRESHOLDS"]
+            percentage_thresholds = thresholds["PERCENTAGE_CHANGE_THRESHOLDS"]
+
+            for service, current_service_metrics in current_metrics.items():
+                past_service_metrics = past_metrics.get(service, {})
+
+                if not past_service_metrics:
+                    continue  # Skip if no past data available for comparison
+
+                for status_code, current_value in current_service_metrics.items():
+                    past_value = past_service_metrics.get(status_code, 0)
+
+                    if past_value == 0 or status_code not in request_thresholds:
+                        continue  # Skip if no past value to compare or status code not defined
+
+                    percentage_change = ((current_value - past_value) / past_value) * 100
+                    min_request_threshold = request_thresholds[status_code]
+                    change_threshold = percentage_thresholds[status_code]
+
+                    # Apply conditions based on configured thresholds
+                    if current_value <= min_request_threshold:
+                        continue  # Skip if below minimum request threshold
+
+                    if percentage_change > change_threshold:
+                        anomalies.append({
+                            "MetricsType": metrics_type,
+                            "Service/API": service,
+                            "StatusCode": status_code,
+                            "CurrentValue": current_value,
+                            "PastValue": past_value,
+                            "PercentageChange": round(percentage_change, 2),
+                            "Threshold": change_threshold
+                        })
+
+        # Check anomalies in application_metrics
+        check_anomalies("Application API Metrics", current_data.get("application_metrics", {}), 
+                        past_data.get("application_metrics", {}), threshold_config["APPLICATION_METRICS"])
+
+        # Check anomalies in istio_metrics
+        check_anomalies("Service Metrics", current_data.get("istio_metrics", {}), 
+                        past_data.get("istio_metrics", {}), threshold_config["ISTIO_METRICS"])
+
+        return anomalies
+    

@@ -11,7 +11,7 @@ class RDSMetricsFetcher:
         self.default_period = int(config.get("DEFAULT_PERIOD", 60))  
         self.cluster_identifiers = config.get("RDS_CLUSTER_IDENTIFIERS", ["atlas-customer-cluster-v1-cluster", "atlas-driver-v1-cluster"])
         self.cpu_threshold = config.get("RDS_CPU_DIFFERENCE_THRESHOLD", 10)
-        self.conn_threshold = config.get("RDS_CPU_DIFFERENCE_THRESHOLD", 100)
+        self.conn_threshold = config.get("RDS_CONNECTIONS_DIFFERENCE_THRESHOLD", 100)
         self.replica_threshold = config.get("REPLICA_THRESHOLD", 1)
 
     def fetch_rds_metrics(self, start_time=None, end_time=None):
@@ -248,7 +248,7 @@ class RDSMetricsFetcher:
                         "Current_Avg": round(current_avg, 2)
                     })
 
-        return {"Anomalies": anomalies}
+        return anomalies
 
 
 

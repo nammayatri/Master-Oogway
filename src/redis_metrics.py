@@ -350,4 +350,4 @@ class RedisMetricsFetcher:
                         anomalies.append(instance_anomalies)
             cluster_anomolies[cluster_name] = anomalies
 
-        return {"Anomalies": cluster_anomolies}
+        return cluster_anomolies
