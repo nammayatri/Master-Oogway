@@ -1,6 +1,7 @@
 import boto3
 from datetime import datetime, timedelta, timezone
 import json
+from time_function import TimeFunction
 
 class RDSMetricsFetcher:
     def __init__(self, config):
@@ -13,6 +14,7 @@ class RDSMetricsFetcher:
         self.cpu_threshold = config.get("RDS_CPU_DIFFERENCE_THRESHOLD", 10)
         self.conn_threshold = config.get("RDS_CONNECTIONS_DIFFERENCE_THRESHOLD", 100)
         self.replica_threshold = config.get("REPLICA_THRESHOLD", 1)
+        self.time_function = TimeFunction()
 
     def fetch_rds_metrics(self, start_time=None, end_time=None):
         """Fetch CPU & Database Connections metrics for all instances in the given time range."""
@@ -87,8 +89,8 @@ class RDSMetricsFetcher:
             # Initialize cluster if not already present
             if cluster_name not in metrics_data:
                 metrics_data[cluster_name] = {
-                    "StartTime": str(start_time),
-                    "EndTime": str(end_time),
+                    "StartTime": self.time_function.convert_time(start_time.strftime("%Y-%m-%d %H:%M:%S"), from_tz="UTC"),
+                    "EndTime": self.time_function.convert_time(end_time.strftime("%Y-%m-%d %H:%M:%S"), from_tz="UTC"),
                     "Instances": {},
                     "ReplicaCount": 0,
                     "WriterCount": 0,

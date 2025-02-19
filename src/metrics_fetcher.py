@@ -97,13 +97,41 @@ class MetricsFetcher:
         active_deployments = []
         if any(len(anomaly) > 0 for anomaly in [rds_anomaly, redis_anomaly, application_anomaly]):
             active_deployments = self.get_recent_active_deployments()
-            self.slack.send_pdf_report({"rds_anomaly": rds_anomaly, "redis_anomaly": redis_anomaly, "application_anomaly": application_anomaly, "active_deployments": active_deployments}, start_time=start_date_time, end_time=end_date_time)
+            file_path = self.slack.create_anomaly_pdf({"rds_anomaly": rds_anomaly, "redis_anomaly": redis_anomaly, "application_anomaly": application_anomaly, "active_deployments": active_deployments}, start_date_time, end_date_time)
+            self.slack.send_pdf_report_on_slack({"rds_anomaly": rds_anomaly, "redis_anomaly": redis_anomaly, "application_anomaly": application_anomaly, "active_deployments": active_deployments}, file_path=file_path)
         return
 
+    def get_current_metrics (self,start_time=None,end_time=None,time_delta=None):
+        current_time,end_time = self.time_function.get_current_fetch_time(start_time,end_time,time_delta)
+        print(f"Current Time: {current_time} → {end_time}")
+        current_rds_metrics = self.rds_fetcher.fetch_rds_metrics(start_time=current_time, end_time=end_time)
+        current_redis_metrics = self.redis_fetcher.get_all_redis_cluster_metrics(metrics_start_time=current_time, metrics_end_time=end_time)
+        current_app_metrics = self.app_metrics_fetcher.fetch_all_prom_metrics(start_time=current_time, end_time=end_time)
+        data = {"rds_metrics":current_rds_metrics,"redis_metrics":current_redis_metrics,"application_metrics":current_app_metrics,"start":self.time_function.convert_time(current_time.strftime("%Y-%m-%d %H:%M:%S")),"end":self.time_function.convert_time(end_time.strftime("%Y-%m-%d %H:%M:%S"))}
+        self.slack.generate_current_report_and_send_on_slack(data)
+        return data
 
 
+
+    def get_current_5xx_or_0DC(self,start_time=None,end_time=None,time_delta=None):
+        current_time,end_time = self.time_function.get_current_fetch_time(start_time,end_time,time_delta)
+        metrix_5xx_or_0DC,istio_metrics= self.app_metrics_fetcher.fetch_all_5xx__0DC_prom_metrics(start_time=current_time,end_time=end_time)
+        result = self.app_metrics_fetcher.get_5xx_or_0dc_graph(metrix_5xx_or_0DC,start_time=current_time,end_time=end_time)
+        result["istio_metrics"]=istio_metrics
+        result["Start Time"]=self.time_function.convert_time(current_time.strftime("%Y-%m-%d %H:%M:%S"), from_tz="UTC")
+        result["End Time"]=self.time_function.convert_time(end_time.strftime("%Y-%m-%d %H:%M:%S"),from_tz="UTC")
+        print(result["pod_anomalies"],result["api_anomalies"],len(result["pod_anomalies"]),len(result["api_anomalies"]), "-------------------Anomalies")
+        if len(result["pod_anomalies"])>0 or len(result["api_anomalies"])>0:
+            self.slack.send_5xx_0dc_report(result)
+            self.app_metrics_fetcher.clean_directory()
+
+        return result
 
 
 if __name__ == "__main__":
     metrics_fetcher = MetricsFetcher()
     metrics_fetcher.fetch_and_analyze_all_metrics()
+    metrics_fetcher.get_current_metrics()
+    print(metrics_fetcher.get_current_5xx_or_0DC())
+    (metrics_fetcher.get_current_5xx_or_0DC())  
+

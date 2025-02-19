@@ -3,6 +3,7 @@ import boto3
 from datetime import datetime, timedelta, timezone
 import json
 import redis
+from time_function import TimeFunction
 
 class RedisMetricsFetcher:
     def __init__(self,config):
@@ -18,6 +19,7 @@ class RedisMetricsFetcher:
         self.memory_threshold = float(config.get("REDIS_MEMORY_DIFFERENCE_THRESHOLD", 10.0))
         self.capacity_threshold = float(config.get("REDIS_CAPACITY_DIFFERENCE_THRESHOLD", 10.0))
         self.allow_instance_anomalies = config.get("ALLOW_INSTANCE_ANOMALIES", False)
+        self.time_function = TimeFunction()
 
 
     def get_cache_instance_endpoints(self, cluster_instances):
@@ -103,7 +105,7 @@ class RedisMetricsFetcher:
                     Period=period,
                     Statistics=["Average"]
                 )
-                cluster_metrics[instance_id]['CPUUtilization'] = cpu_response["Datapoints"][-1]["Average"] if cpu_response["Datapoints"] else None
+                cluster_metrics[instance_id]['CPUUtilization'] = round(cpu_response["Datapoints"][-1]["Average"],2) if cpu_response["Datapoints"] else None
                 
                 # Fetch Redis Engine CPU Utilization
                 engine_cpu_response = self.cloudwatch.get_metric_statistics(
@@ -115,7 +117,7 @@ class RedisMetricsFetcher:
                     Period=period,
                     Statistics=["Average"]
                 )
-                cluster_metrics[instance_id]['EngineCPUUtilization'] = engine_cpu_response["Datapoints"][-1]["Average"] if engine_cpu_response["Datapoints"] else None
+                cluster_metrics[instance_id]['EngineCPUUtilization'] = round(engine_cpu_response["Datapoints"][-1]["Average"],2) if engine_cpu_response["Datapoints"] else None
                 
                 # Fetch Redis Database Capacity Usage Percentage
                 capacity_response = self.cloudwatch.get_metric_statistics(
@@ -127,7 +129,7 @@ class RedisMetricsFetcher:
                     Period=period,
                     Statistics=["Average"]
                 )
-                cluster_metrics[instance_id]['DatabaseCapacityUsage'] = capacity_response["Datapoints"][-1]["Average"] if capacity_response["Datapoints"] else None
+                cluster_metrics[instance_id]['DatabaseCapacityUsage'] = round(capacity_response["Datapoints"][-1]["Average"],2) if capacity_response["Datapoints"] else None
 
                 # Fetch Redis Memory Usage
                 memory_response = self.cloudwatch.get_metric_statistics(
@@ -139,12 +141,12 @@ class RedisMetricsFetcher:
                     Period=period,
                     Statistics=["Average"]
                 )
-                cluster_metrics[instance_id]['MemoryUsage'] = memory_response["Datapoints"][-1]["Average"] if memory_response["Datapoints"] else None
+                cluster_metrics[instance_id]['MemoryUsage'] = round(memory_response["Datapoints"][-1]["Average"],2) if memory_response["Datapoints"] else None
         
         # Add number of replicas
         cluster_metrics["ReplicaCount"] = sum(1 for instance in cluster_metrics if cluster_metrics[instance]["Role"] == "Replica")
-        cluster_metrics["StartTime"] = str(start_time)
-        cluster_metrics["EndTime"] = str(end_time)
+        cluster_metrics["StartTime"] = self.time_function.convert_time(start_time.strftime("%Y-%m-%d %H:%M:%S"), from_tz="UTC")
+        cluster_metrics["EndTime"] = self.time_function.convert_time(end_time.strftime("%Y-%m-%d %H:%M:%S"), from_tz="UTC")
         cluster_metrics["MasterNodes"] = [{
             "InstanceId": instance,
             "Endpoint": cluster_metrics[instance]["Endpoint"],

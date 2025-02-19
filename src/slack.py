@@ -1,7 +1,7 @@
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable,PageBreak
 import tempfile
 import logging
 import os
@@ -12,7 +12,9 @@ from load_config import load_config
 from time_function import TimeFunction
 from reportlab.lib.enums import TA_CENTER
 from master_oogway import get_master_oogway_quotes
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
 import json
+
 
 
 class SlackMessenger:
@@ -66,7 +68,7 @@ class SlackMessenger:
 
         return Paragraph(f"<pre>{formatted_value}</pre>", normal_style)
 
-    def create_pdf(self, data, filename="Anomaly_Report.pdf", start_date_time=None, end_date_time=None):
+    def create_anomaly_pdf(self, data, start_date_time=None, end_date_time=None):
         """Generate a structured, multi-page PDF anomaly report."""
         if not start_date_time or not end_date_time:
             start_date_time, end_date_time = self.time_function.get_target_datetime(
@@ -107,8 +109,6 @@ class SlackMessenger:
             self.add_section(content, "Application & Istio Anomalies", data.get("application_anomaly", []), header_style, normal_style, bold_style, red_bold_style)
             
             self.add_deployment_section(content, f"🚀 Deployments in past {self.days} days", data.get("active_deployments", []), header_style, normal_style)
-
-            # ✅ Save PDF
             doc.build(content)
             logging.info(f"✅ PDF Report Generated: {file_path}")
 
@@ -116,8 +116,7 @@ class SlackMessenger:
             logging.error(f"❌ Error creating PDF: {e}")
 
         return file_path
-
-
+    
 
     def add_section(self, content, title, anomalies, header_style, normal_style, bold_style, red_bold_style, is_nested=False, level=0):
         """
@@ -126,7 +125,6 @@ class SlackMessenger:
         """
         if not anomalies:
             return
-        # **🔹 Add title only if it's not nested**
         if not is_nested:
             content.append(Paragraph(f"🔹 <b>{title}</b>", header_style))
             content.append(Spacer(1, 12))
@@ -207,14 +205,365 @@ class SlackMessenger:
         content.append(table)
         content.append(Spacer(1, 12))
 
-    def send_pdf_report(self, data, filename="Anomaly_Report.pdf", start_time=None, end_time=None):
+    def send_pdf_report_on_slack(self, data, filename="Anomaly_Report.pdf",file_path=None):
         """Generate and send a PDF anomaly report to Slack."""
-        file_path = self.create_pdf(data, filename, start_date_time=start_time, end_date_time=end_time)
         self.client.files_upload_v2(
             channel=self.default_channel,
             file=file_path,
             filename=filename,
-            title="🚨 Anomaly Report",
+            title="🚨 "+filename,
             initial_comment="📄 @here Master Oogway :oogway: has returned with wisdom - " + get_master_oogway_quotes(data),
         )
-        os.remove(file_path)  # Cleanup temp file
+        os.remove(file_path) 
+        logging.info(f"✅ PDF Report Sent to Slack: {filename}")
+        return file_path
+    
+
+    def generate_current_report_and_send_on_slack(self,data, filename="System_Metrics_Report.pdf"):
+        """
+        Generates a structured PDF report and sends it to Slack.
+        """
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+        file_path = temp_file.name
+
+        try:
+            doc = SimpleDocTemplate(file_path, pagesize=A4)
+            styles = getSampleStyleSheet()
+            wrap_style = ParagraphStyle(
+                "wrap_style",
+                fontSize=10,
+                leading=12,
+                textColor=colors.black,
+                wordWrap="CJK",  # Enables word wrap for long text
+            )
+            # Custom Styles
+            title_style = ParagraphStyle("TitleStyle", parent=styles["Title"], fontSize=20, textColor=colors.darkblue, spaceAfter=12, alignment=1, underline=True)
+            header_style = ParagraphStyle("HeaderStyle", parent=styles["Heading2"], fontSize=16, textColor=colors.darkred, spaceAfter=10, alignment=1, underline=True)
+            header_style1 = ParagraphStyle("HeaderStyle", parent=styles["Heading2"], fontSize=14, textColor=colors.magenta, spaceAfter=10, alignment=1, underline=True)
+            bold_style = ParagraphStyle("BoldStyle", parent=styles["BodyText"], fontSize=12, textColor=colors.purple, bold=True)
+            bold_style1 = ParagraphStyle("BoldStyle", parent=styles["BodyText"], fontSize=14, textColor=colors.black, bold=True)
+
+            content = []
+
+            # 🚀 Report Title
+            content.append(Paragraph("🚀 System Metrics Report", title_style))
+            content.append(Spacer(1, 10))
+
+            # ✅ Report Metadata
+            metadata = {
+                " - Report Generated at": self.format_time(datetime.now(timezone.utc)),
+                " - Monitoring Period": f"{data['start']} to {data['end']}",
+            }
+
+            for key, value in metadata.items():
+                content.append(Paragraph(f"<b> {key} </b>: {value}", bold_style1))
+            content.append(Spacer(1, 12))
+
+            # 📊 **Add RDS Metrics**
+            if "rds_metrics" in data:
+                content.append(Paragraph("📌 RDS Metrics", header_style))
+                content.append(Spacer(20,20))
+                for cluster, details in data["rds_metrics"].items():
+                    content.append(Paragraph(f"🔹 <b> <u>{cluster} </u></b>", bold_style))
+                    content.append(Spacer(1, 12))
+                    table_data = [["Instance", "Role", "CPU%", "Connections"]]
+                    for instance, values in details["Instances"].items():
+                        table_data.append([
+                            Paragraph(instance, wrap_style),
+                            values["Role"],
+                            f"{values['CPUUtilization']}%",
+                            f"{values["DatabaseConnections"]}"
+                        ])
+                    table = Table(table_data, colWidths=[200, 80, 80, 100])
+                    table.setStyle(TableStyle([
+                        ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
+                        ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                        ("BOTTOMPADDING", (0, 0), (-1, 0), 10),
+                        ("GRID", (0, 0), (-1, -1), 1, colors.black),
+                    ]))
+                    content.append(table)
+                    content.append(Spacer(1, 12))
+
+            # 🔥 **Add Redis Metrics**
+            if "redis_metrics" in data:
+                content.append(Paragraph("📌 Redis Metrics", header_style))
+                content.append(Spacer(1, 12))
+                for cluster, nodes in data["redis_metrics"].items():
+                    content.append(Paragraph(f"🔹 <b>{cluster}</b>", bold_style))
+                    content.append(Spacer(1, 12))
+                    table_data = [["Instance", "Role", "CPU%", "Memory%", "Capacity%"]]
+                    for instance, values in nodes.items():
+                        if isinstance(values, dict) and "CPUUtilization" in values:
+                            table_data.append([
+                                Paragraph(instance, wrap_style),
+                                values["Role"],
+                                f"{values['CPUUtilization']}%",
+                                f"{values['MemoryUsage']}%",
+                                f"{values['DatabaseCapacityUsage']}%",
+                            ])
+                    table = Table(table_data, colWidths=[200, 80, 80, 80, 80])
+                    table.setStyle(TableStyle([
+                        ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
+                        ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                        ("BOTTOMPADDING", (0, 0), (-1, 0), 10),
+                        ("GRID", (0, 0), (-1, -1), 1, colors.black),
+                    ]))
+                    content.append(table)
+                    content.append(Spacer(1, 12))
+
+            # 📈 **Add Application Metrics**
+            if "application_metrics" in data:
+                content.append(Paragraph("📌 Application API Metrics", header_style))
+                content.append(Spacer(1, 12))
+                for metric, value in data["application_metrics"].items():
+                    content.append(Paragraph(f"🔹 <b>{metric.upper()}</b>", header_style1))
+                    content.append(Spacer(1, 12))
+                    for service, status_codes in value.items():
+                        content.append(Paragraph(f"🔸 <b>{service}</b>", bold_style))
+                        content.append(Spacer(1, 12))
+                        table_data = [["Status Code", "Requests"]]
+                        for code, count in status_codes.items():
+                            table_data.append([code, count])
+                        table = Table(table_data, colWidths=[100, 100])
+                        table.setStyle(TableStyle([
+                            ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
+                            ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                            ("BOTTOMPADDING", (0, 0), (-1, 0), 10),
+                            ("GRID", (0, 0), (-1, -1), 1, colors.black),
+                        ]))
+                        content.append(table)
+                        content.append(Spacer(1, 12))
+
+            # ✅ Save PDF
+            doc.build(content)
+            logging.info(f"✅ PDF Report Generated: {file_path}")
+
+        except Exception as e:
+            logging.error(f"❌ Error creating PDF: {e}")
+            return None
+
+        try:
+
+            self.send_pdf_report_on_slack(data, filename, file_path)
+        except SlackApiError as e:
+            logging.error(f"❌ Slack API Error (PDF Upload): {e.response['error']}")
+
+        finally:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                logging.info(f"🗑️ Deleted Temporary File: {file_path}")
+
+
+
+    def generate_5xx_0dc_report(self,data, output_pdf="Anomaly_Report.pdf"):
+        """
+        Generates a structured PDF report from anomaly data.
+        - Istio Metrics at the top.
+        - Pod & API Anomalies with images (2 per row).
+        """
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
+            output_pdf = temp_file.name
+        doc = SimpleDocTemplate(output_pdf, pagesize=A4)
+        styles = getSampleStyleSheet()
+        content = []
+
+        # Custom Styles
+        title_style = ParagraphStyle("TitleStyle", parent=styles["Title"], fontSize=22, textColor=colors.darkblue, spaceAfter=12, alignment=1, underline=True)
+        header_style = ParagraphStyle("HeaderStyle", parent=styles["Heading2"], fontSize=18, textColor=colors.darkred, spaceAfter=10, underline=True,alignment=1)
+        bold_style = ParagraphStyle("BoldStyle", parent=styles["BodyText"], fontSize=12, textColor=colors.black, bold=True)
+        bold_style1 = ParagraphStyle("BoldStyle", parent=styles["BodyText"], fontSize=16, textColor=colors.black, bold=True)
+        wrap_style = ParagraphStyle(
+                "wrap_style",
+                fontSize=10,
+                leading=12,
+                textColor=colors.black,
+                bold=True,
+                wordWrap="CJK",  
+            )
+
+        # Report Title
+        content.append(Paragraph("🚀 Current Anomaly Detection Report", title_style))
+        content.append(Spacer(1, 12))
+
+        # Report Metadata (Start & End Time)
+        content.append(Paragraph(f"📅 <b>Start Time:</b> {data.get('Start Time', 'N/A')}", bold_style1))
+        content.append(Paragraph(f"📅 <b>End Time:</b> {data.get('End Time', 'N/A')}", bold_style1))
+        content.append(Spacer(1, 12))
+
+        if "istio_metrics" in data and len(data["istio_metrics"]) > 0:
+            content.append(Paragraph("🔹 Istio Metrics", header_style))
+            content.append(Spacer(1, 6))
+
+            table_data = [["Service", "2xx", "3xx", "4xx", "5xx", "0DC", "Unknown"]]  # Table Headers
+            for service, metrics in data["istio_metrics"].items():
+                table_data.append([
+                    Paragraph(service, wrap_style),
+                    metrics.get("2xx", 0),
+                    metrics.get("3xx", 0),
+                    metrics.get("4xx", 0),
+                    metrics.get("5xx", 0),
+                    metrics.get("0DC", 0),
+                    metrics.get("unknown", 0),
+                ])
+
+            table = Table(table_data, colWidths=[200, 50, 50, 50, 50, 50, 50])
+            table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("BOTTOMPADDING", (0, 0), (-1, 0), 12),
+                ("BACKGROUND", (0, 1), (-1, -1), colors.beige),
+                ("GRID", (0, 0), (-1, -1), 1, colors.black),
+            ]))
+
+            content.append(table)
+            content.append(Spacer(1, 12))
+            content.append(PageBreak())
+
+        if "pod_anomalies" in data and len(data["pod_anomalies"]) > 0:
+            content.append(Paragraph("🔹 Pod Anomalies", header_style))
+            content.append(Spacer(1, 6))
+
+            for pod, image_paths in data["pod_anomalies"].items():
+                content.append(Paragraph(f"<b>Service: {pod} </b>", header_style))
+                content.append(Spacer(1, 6))
+
+                for image_path in image_paths:
+                    if os.path.exists(image_path):
+                        img = Image(image_path, width=550, height=270)
+                        content.append(img)
+                        content.append(Spacer(1, 12))
+
+            content.append(PageBreak())
+
+        if "api_anomalies" in data and len(data["api_anomalies"]) > 0:
+            content.append(Paragraph("🔹 API Anomalies", header_style))
+            content.append(Spacer(1, 6))
+            for image_path in data["api_anomalies"]:
+                if os.path.exists(image_path):
+                    img = Image(image_path, width=550, height=270)
+                    content.append(img)
+                    content.append(Spacer(1, 12))
+            content.append(PageBreak())
+
+        # Generate PDF
+        doc.build(content)
+        return output_pdf
+    
+    def send_5xx_0dc_report(self,data, filename="Current_Anomaly_Report.pdf"):
+        """
+        Generate a structured PDF report for 5xx and 0DC anomalies and send it to Slack.
+        """
+        print("\n🚀 Generating & Sending Current Anomaly Report to Slack...")
+        file_path = self.generate_5xx_0dc_report(data, filename)
+        try:
+            self.send_pdf_report_on_slack(data, filename, file_path)
+        except SlackApiError as e:
+            logging.error(f"❌ Slack API Error (PDF Upload): {e.response['error']}")
+        finally:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                logging.info(f"🗑️ Deleted Temporary File: {file_path}")
+
+
+if __name__ == "__main__":
+    config_data = load_config()
+    slack_messenger = SlackMessenger(config_data)
+    dummydata ={
+    "pod_anomalies": {
+        "beckn-location-tracking-service-production": [
+            "anomaly_plots/beckn-location-tracking-service-production-305669v1-655cd7n2d2t_anomalies.png",
+            "anomaly_plots/beckn-location-tracking-service-production-305669v1-655cd7mnccc_anomalies.png",
+            "anomaly_plots/beckn-location-tracking-service-production-305669v1-655cd7kn6zl_anomalies.png"
+        ],
+        "beckn-driver-offer-bpp-production": [
+            "anomaly_plots/beckn-driver-offer-bpp-production-0edb6f-5f748747b7-pn77h_anomalies.png",
+            "anomaly_plots/beckn-driver-offer-bpp-production-0edb6f-5f748747b7-4gc45_anomalies.png",
+            "anomaly_plots/beckn-driver-offer-bpp-production-0edb6f-5f748747b7-rgp5b_anomalies.png",
+            "anomaly_plots/beckn-driver-offer-bpp-production-0edb6f-5f748747b7-vdsrp_anomalies.png",
+            "anomaly_plots/beckn-driver-offer-bpp-production-0edb6f-5f748747b7-mhfbh_anomalies.png",
+            "anomaly_plots/beckn-driver-offer-bpp-production-0edb6f-5f748747b7-7dqxl_anomalies.png"
+        ],
+        "beckn-app-backend-production-pilot": [
+            "anomaly_plots/beckn-app-backend-production-pilot-928f09-7ddd4c6644-zmmh4_anomalies.png"
+        ]
+    },
+    "api_anomalies": [
+        "anomaly_plots/POST beckn-driver-offer-bpp-production :merchantIdservicejuspaypayment 500_anomalies.png",
+        "anomaly_plots/POST beckn-driver-offer-bpp-production beckn:merchantIdstatus 500_anomalies.png",
+        "anomaly_plots/POST beckn-driver-offer-bpp-production dashboard:merchantId:citybookingsync 500_anomalies.png",
+        "anomaly_plots/POST beckn-driver-offer-bpp-production serviceidfyverification 500_anomalies.png",
+        "anomaly_plots/POST beckn-driver-offer-bpp-production uiauth 500_anomalies.png",
+        "anomaly_plots/POST beckn-driver-offer-bpp-production uicallEvent 500_anomalies.png",
+        "anomaly_plots/GET beckn-driver-offer-bpp-production uidrivercleardues 500_anomalies.png",
+        "anomaly_plots/POST beckn-driver-offer-bpp-production uidriverride:rideIdend 500_anomalies.png",
+        "anomaly_plots/GET beckn-driver-offer-bpp-production uiexotelcallcustomernumber 500_anomalies.png",
+        "anomaly_plots/POST beckn-driver-offer-bpp-production uifeedbackrateRide 500_anomalies.png",
+        "anomaly_plots/POST beckn-app-backend-production-pilot v2mapsgetPlaceName 500_anomalies.png",
+        "anomaly_plots/POST beckn-app-backend-production-pilot v2profile 500_anomalies.png",
+        "anomaly_plots/POST beckn-app-backend-production-pilot v2ride:rideIddriverlocation 503_anomalies.png",
+        "anomaly_plots/POST beckn-app-backend-production-pilot v2rideBooking:rideBookingIdcancel 500_anomalies.png"
+    ],
+    "istio_metrics": {
+        "beckn-driver-offer-bpp-production": {
+            "2xx": 1388703,
+            "3xx": 0,
+            "4xx": 17086,
+            "5xx": 66,
+            "0DC": 172,
+            "unknown": 0
+        },
+        "beckn-location-tracking-service-production": {
+            "2xx": 9260180,
+            "3xx": 0,
+            "4xx": 71192,
+            "5xx": 311,
+            "0DC": 324,
+            "unknown": 0
+        },
+        "beckn-lts-healthcheck-production": {
+            "2xx": 0,
+            "3xx": 0,
+            "4xx": 0,
+            "5xx": 967,
+            "0DC": 0,
+            "unknown": 0
+        },
+        "beckn-osrm": {
+            "2xx": 470534,
+            "3xx": 0,
+            "4xx": 7,
+            "5xx": 396,
+            "0DC": 0,
+            "unknown": 0
+        },
+        "beckn-safety-dashboard-production": {
+            "2xx": 0,
+            "3xx": 0,
+            "4xx": 0,
+            "5xx": 744,
+            "0DC": 0,
+            "unknown": 0
+        },
+        "beckn-app-backend-production-pilot": {
+            "2xx": 2959701,
+            "3xx": 0,
+            "4xx": 6997,
+            "5xx": 49,
+            "0DC": 274,
+            "unknown": 0
+        }
+    },
+    "Start Time": "2025-02-19 18:16",
+    "End Time": "2025-02-19 18:46"
+}
+    slack_messenger.send_5xx_0dc_report(dummydata)
+

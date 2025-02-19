@@ -96,3 +96,39 @@ class TimeFunction:
         converted_time = time_obj.astimezone(to_zone) 
         return converted_time.strftime("%Y-%m-%d %H:%M") 
     
+    def get_current_fetch_time(self, start_time = None, end_time = None,time_delta = None):
+        """
+        Get the current time in UTC timezone.
+        """
+        ist_tz = pytz.timezone("Asia/Kolkata")
+        utc_tz = pytz.utc
+        time_delta_default = {"minutes": 30} if time_delta is None else {"minutes": time_delta}
+        if start_time and end_time:
+            # Here start_time and end_time are the time only we have to return date
+            now = datetime.now(ist_tz)
+            current_date = now.strftime("%Y-%m-%d")
+            current_time = datetime.strptime(f"{current_date} {start_time}", "%Y-%m-%d %H:%M")
+            end_time = datetime.strptime(f"{current_date} {end_time}", "%Y-%m-%d %H:%M")
+            return current_time.astimezone(utc_tz), end_time.astimezone(utc_tz)
+        elif start_time:
+            # Here start_time is the time only we have to return date
+            now = datetime.now(ist_tz)
+            current_date = now.strftime("%Y-%m-%d")
+            current_time = datetime.strptime(f"{current_date} {start_time}", "%Y-%m-%d %H:%M")
+            return current_time.astimezone(utc_tz), now.astimezone(utc_tz)
+        else:
+            start = datetime.now(utc_tz) - timedelta(**time_delta_default)
+            end = datetime.now(utc_tz)
+            return start, end
+        
+
+    
+if __name__ == "__main__":
+    time_function = TimeFunction()
+    a,b= time_function.get_current_time("10:00","11:00")
+    print(a,b)
+    a,b= time_function.get_current_time("10:00")
+    print(a,b)
+    a,b= time_function.get_current_time(time_delta=60)
+    print(a,b)
+
