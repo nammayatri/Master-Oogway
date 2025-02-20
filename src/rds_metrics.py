@@ -14,7 +14,7 @@ class RDSMetricsFetcher:
         self.cpu_threshold = config.get("RDS_CPU_DIFFERENCE_THRESHOLD", 10)
         self.conn_threshold = config.get("RDS_CONNECTIONS_DIFFERENCE_THRESHOLD", 100)
         self.replica_threshold = config.get("REPLICA_THRESHOLD", 1)
-        self.time_function = TimeFunction()
+        self.time_function = TimeFunction(config)
 
     def fetch_rds_metrics(self, start_time=None, end_time=None):
         """Fetch CPU & Database Connections metrics for all instances in the given time range."""

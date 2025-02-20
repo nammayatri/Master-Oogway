@@ -3,10 +3,11 @@ import pytz
 from datetime import datetime, timedelta
 
 class TimeFunction:
-    def __init__(self):
+    def __init__(self,config):
+        self.default_time_delta = config.get("DEFAULT_TIME_DELTA", {"hours": 1})
         pass
         
-    def get_target_datetime(self, days_before=None, target_hour=None, target_minute=None, time_delta=None):
+    def get_target_datetime(self, days_before=None, target_hour=None, target_minute=None, time_delta=None, now_time_delta = 0):
         """
         Get a datetime object:
         - If `target_hour:target_minute` is earlier than the current time, return today's date with that time.
@@ -19,12 +20,16 @@ class TimeFunction:
         :param time_delta: Dictionary (e.g., {"hours": 1}) defining the time range for fetching metrics.
         :return: Tuple of ([current_start_time_utc, current_end_time_utc], [past_start_time_utc, past_end_time_utc])
         """
+        if now_time_delta is None:
+            now_time_delta = 0
         # Default time range of 1 hour if None provided
         if time_delta is None:
             time_delta = {"hours": 1}
         ist = pytz.timezone("Asia/Kolkata")
         utc = pytz.utc
         now = datetime.now(ist)
+        if now_time_delta < days_before:
+            now = now - timedelta(days=now_time_delta)
         days_before = 0 if days_before is None else days_before
         target_hour = now.hour if target_hour is None else target_hour
         target_minute = now.minute if target_minute is None else target_minute
@@ -102,7 +107,7 @@ class TimeFunction:
         """
         ist_tz = pytz.timezone("Asia/Kolkata")
         utc_tz = pytz.utc
-        time_delta_default = {"minutes": 30} if time_delta is None else {"minutes": time_delta}
+        time_delta_default = self.default_time_delta if time_delta is None else {"hours": time_delta}
         if start_time and end_time:
             # Here start_time and end_time are the time only we have to return date
             now = datetime.now(ist_tz)
@@ -124,7 +129,7 @@ class TimeFunction:
 
     
 if __name__ == "__main__":
-    time_function = TimeFunction()
+    time_function = TimeFunction({"DEFAULT_TIME_DELTA": {"hours": 1}})
     a,b= time_function.get_current_time("10:00","11:00")
     print(a,b)
     a,b= time_function.get_current_time("10:00")

@@ -18,7 +18,7 @@ class DeploymentChecker:
         self.namespace = config_data.get("KUBERNETES_NAMESPACE", "default")
         self.time_offset_days = config_data.get("TIME_OFFSET_DAYS", 7)
         self.region = config_data.get("AWS_REGION", "ap-south-1")
-        self.time_function = TimeFunction()
+        self.time_function = TimeFunction(config_data)
 
         # Get Kubernetes API Client for the EKS Cluster
         # self.kube_client = self.get_kube_client(self.cluster_name)
@@ -27,33 +27,40 @@ class DeploymentChecker:
     def get_kube_client(self, cluster_name):
         """Authenticate with EKS and return Kubernetes API client."""
         print("🔄 Fetching Kubernetes cluster authentication details...")
-        eks = boto3.client('eks', region_name=self.region)
-        cluster_info = eks.describe_cluster(name=cluster_name)
+        try:
+            config.load_incluster_config()
+            return client.ApiClient()
+        except config.ConfigException:
+            print("🔑 Authenticating with AWS EKS...")
+            eks = boto3.client('eks', region_name=self.region)
+            cluster_info = eks.describe_cluster(name=cluster_name)
 
-        endpoint = cluster_info['cluster']['endpoint']
-        ca_data = cluster_info['cluster']['certificateAuthority']['data']
+            endpoint = cluster_info['cluster']['endpoint']
+            ca_data = cluster_info['cluster']['certificateAuthority']['data']
 
-        # Decode CA certificate
-        decoded_ca_data = base64.b64decode(ca_data)
+            # Decode CA certificate
+            decoded_ca_data = base64.b64decode(ca_data)
 
-        # Save CA certificate to a temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".crt") as ca_cert_file:
-            ca_cert_file.write(decoded_ca_data)
-            ca_cert_file_path = ca_cert_file.name
+            # Save CA certificate to a temporary file
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".crt") as ca_cert_file:
+                ca_cert_file.write(decoded_ca_data)
+                ca_cert_file_path = ca_cert_file.name
 
-        # Get the authentication token
-        token = self.get_bearer_token(cluster_name)
+            # Get the authentication token
+            token = self.get_bearer_token(cluster_name)
 
-        # Configure Kubernetes client
-        configuration = client.Configuration()
-        configuration.host = endpoint
-        configuration.verify_ssl = True
-        configuration.ssl_ca_cert = ca_cert_file_path
-        configuration.api_key['authorization'] = f'Bearer {token}'
-        client.Configuration.set_default(configuration)
+            # Configure Kubernetes client
+            configuration = client.Configuration()
+            configuration.host = endpoint
+            configuration.verify_ssl = True
+            configuration.ssl_ca_cert = ca_cert_file_path
+            configuration.api_key['authorization'] = f'Bearer {token}'
+            client.Configuration.set_default(configuration)
 
-        print(f"✅ Connected to Kubernetes cluster: {cluster_name}")
-        return ApiClient(configuration)
+            print(f"✅ Connected to Kubernetes cluster: {cluster_name}")
+            return ApiClient(configuration)
+
+
 
     def get_bearer_token(self, cluster_name):
         """Generate AWS EKS authentication token for Kubernetes."""
@@ -98,3 +105,8 @@ class DeploymentChecker:
 
         return active_deployments
     
+
+if __name__ == "__main__":
+    config_data = load_config()
+    checker = DeploymentChecker(config_data)
+    print(checker.get_recent_active_deployments())

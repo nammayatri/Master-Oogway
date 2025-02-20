@@ -21,6 +21,7 @@ class ApplicationMetricsFetcher:
         self.app_consecutive_datapoints = config.get("APPLICATION_CONSECUTIVE_DATAPOINTS", 2)
         self.skip_memory_anomaly = config.get("SKIP_MEMORY_CHECK_SERVICES", [])
         self.skip_cpu_anomaly = config.get("SKIP_CPU_CHECK_SERVICES", [])
+        self.skip_error_check_services = config.get("SKIP_ERROR_CHECK_SERVICES", [])
         self.istio_metrics = config.get("ISTIO_METRICS", [])
         self.application_metrics = config.get("APPLICATION_METRICS", [])
         self.ERROR_5XX_THRESHOLD = config.get("ERROR_5XX_THRESHOLD", 10)
@@ -133,7 +134,7 @@ class ApplicationMetricsFetcher:
         total_requests = self.aggregate_app_metric_by_labels(total_requests_data)
         return total_requests
     
-    def aggregate_istio_metric_by_labels(self, metric_data):
+    def aggregate_istio_metric_by_labels(self, metric_data,is_pod=False):
         if not metric_data or "data" not in metric_data or "result" not in metric_data["data"]:
             return {}
 
@@ -161,7 +162,7 @@ class ApplicationMetricsFetcher:
                 category = "unknown"
 
             # Unique key for aggregation (ignoring specific status codes but grouping them separately)
-            key = f"{service_name}" + f" {pod}"
+            key = f"{service_name}" + f" {pod}" if not is_pod else f"{pod}"
             key = key.strip()
 
             # Initialize structure if not present
@@ -173,6 +174,9 @@ class ApplicationMetricsFetcher:
 
             # Store in dictionary under the appropriate category
             aggregated_results[key][category] += int(total_count)
+        
+        # sort all the keys by 5xx +0dc count
+        aggregated_results = dict(sorted(aggregated_results.items(), key=lambda item: item[1]["5xx"] + item[1]["0DC"], reverse=True))
 
         return aggregated_results
     
@@ -190,13 +194,15 @@ class ApplicationMetricsFetcher:
 
         return aggregated_istio_requests , total_istio_requests
     
-    def fetch_istio_metrics_pod_wise_errors(self, start_time=None, end_time=None):
+    def fetch_istio_metrics_pod_wise_errors(self, start_time=None, end_time=None,service_names=None):
         start, end = self.time_to_epoch(start_time, end_time)
-        # **🔹 Total Request Count (All 2xx,3xx,4xx,5xx)
         total_istio_requests_query = f"sum by (destination_service_name, pod, response_code, response_flags) ((label_replace(increase(istio_requests_total{{response_code!~\"(2..|3..|4..)\", destination_service_name!=\"istio-telemetry\", reporter=\"destination\"}}[{self.query_step_range}]), \"pod_ip\", \"$1\", \"instance\", \"^(.*):[0-9]+$\") * on (pod_ip) group_left(pod) (max by (pod_ip, pod) (kube_pod_info))))"
+        if service_names:
+            service_names = "destination_service_name=~\"(" + "|".join(service_names) + ")\""
+            total_istio_requests_query = f"sum by (pod, response_code, response_flags) ((label_replace(increase(istio_requests_total{{response_code!~\"(2..|3..|4..)\", destination_service_name!=\"istio-telemetry\", {service_names}, reporter=\"destination\"}}[{self.query_step_range}]), \"pod_ip\", \"$1\", \"instance\", \"^(.*):[0-9]+$\") * on (pod_ip) group_left(pod) (max by (pod_ip, pod) (kube_pod_info))))"
         print("🚀 Fetching Total Istio request erros pod level: ", total_istio_requests_query,"\n")
         total_istio_requests = self.fetch_metric(total_istio_requests_query, start, end,self.query_step_range)
-        aggregated_istio_requests = self.aggregate_istio_metric_by_labels(total_istio_requests)
+        aggregated_istio_requests = self.aggregate_istio_metric_by_labels(total_istio_requests,is_pod=True)
         return aggregated_istio_requests
     
 
@@ -222,6 +228,17 @@ class ApplicationMetricsFetcher:
                 except IsADirectoryError:
                     pass  
 
+    def delete_directory(self,directory_path="anomaly_plots"):
+        """Deletes the directory and all its contents."""
+        os.makedirs(directory_path, exist_ok=True)
+        for file in os.listdir(directory_path):
+            file_path = os.path.join(directory_path, file)
+            try:
+                os.remove(file_path)
+            except IsADirectoryError:
+                pass
+        os.rmdir(directory_path)
+        
 
     def detect_and_plot_mem_cpu_anomalies_per_pod(self, cpu_data, memory_data, output_dir="anomaly_plots"):
         """
@@ -370,40 +387,59 @@ class ApplicationMetricsFetcher:
         
         def check_anomalies(values, threshold=100):
             anomalies = []
+            point_sum = 0
+            max_sum = 0
             count = 0
             for i in range(len(values) - 1):
                 if values[i] > threshold:
                     count += 1
                     if count >= self.error_consecutive_datapoints:
                         anomalies.append(i)
+                        point_sum += values[i]
                 else:
+                    max_sum = max(max_sum, point_sum)
+                    point_sum = 0
                     count = 0
-            return anomalies
-
+            return anomalies , max_sum
+        
+        def filter_pod_wise_errors(data , threshold_5xx = 10, threshold_0dc = 10):
+            pods_data = {}
+            for pod, values in data.items():
+                if values.get("5xx") > threshold_5xx or values.get("0DC") > threshold_0dc:
+                    pods_data[pod] = values
+            return pods_data
+        
         istio_metrics,istio_data_points = self.fetch_istio_metrics(start_time, end_time)
         filtered_istio_metrics ={}
         filtered_5xx = []
         filtered_0DC = []
+        affected_services = []
         extracted_istio_metrics = extract_data(istio_data_points)
         for service, data in extracted_istio_metrics.items():
-            if data.get("5xx"):
-                anomalies = check_anomalies(data["5xx"]["values"], self.ERROR_5XX_THRESHOLD)
+            if data.get("5xx") and service not in self.skip_error_check_services:
+                anomalies,max_5xx_count = check_anomalies(data["5xx"]["values"], self.ERROR_5XX_THRESHOLD)
                 if anomalies:
                     filtered_5xx.append({service: anomalies})
                     filtered_istio_metrics[service] = istio_metrics[service]
-            
-            if data.get("0DC"):
-                anomalies = check_anomalies(data["0DC"]["values"], self.ERROR_0DC_THRESHOLD)
+                    filtered_istio_metrics[service]["5xx_max"] = max_5xx_count
+                    affected_services.append(service)
+                    
+            if data.get("0DC") and service not in self.skip_error_check_services:
+                anomalies,max_0dc_count = check_anomalies(data["0DC"]["values"], self.ERROR_0DC_THRESHOLD)
                 if anomalies:
                     filtered_0DC.append({service: anomalies})
                     filtered_istio_metrics[service] = istio_metrics[service]
+                    filtered_istio_metrics[service]["0DC_max"] = max_0dc_count
+                    affected_services.append(service)
         result = {
             "5xx": filtered_5xx,
             "0DC": filtered_0DC
         }
-        return result, filtered_istio_metrics
+        istio_pod_wise_errors = self.fetch_istio_metrics_pod_wise_errors(start_time, end_time,service_names=affected_services)
+        istio_pod_wise_errors = filter_pod_wise_errors(istio_pod_wise_errors)
+        return result, filtered_istio_metrics, istio_pod_wise_errors
     
-    def get_5xx_or_0dc_graph(self, service_metrics=None, start_time=None, end_time=None):
+    def get_5xx_or_0dc_graph(self, service_metrics=None, start_time=None, end_time=None,output_dir="anomaly_plots"):
         """
         Fetch all application and Istio metrics.
         """
@@ -422,10 +458,11 @@ class ApplicationMetricsFetcher:
         if services_0DC:
             cpu_memory_data = {
                 service: {
-                    "cpu": self.fetch_individual_cpu_and_memory(start_time, end_time, services=service)[0],
-                    "memory": self.fetch_individual_cpu_and_memory(start_time, end_time, services=service)[1]
+                    "cpu": data[0],
+                    "memory": data[1]
                 }
                 for service in services_0DC
+                if (data := self.fetch_individual_cpu_and_memory(start_time, end_time, services=service))
             }
 
         if services:
@@ -440,13 +477,13 @@ class ApplicationMetricsFetcher:
 
         # Detect and plot anomalies for each service in 0DC list
         for service, data in cpu_memory_data.items():
-            res = self.detect_and_plot_mem_cpu_anomalies_per_pod(data["cpu"], data["memory"])
+            res = self.detect_and_plot_mem_cpu_anomalies_per_pod(data["cpu"], data["memory"], output_dir)
             if res:
                 pod_anomalies[service] = res
 
         # Detect API anomalies if request data is available
         if total_requests_data:
-            api_anomalies = self.detect_and_plot_api_error_anomalies(total_requests_data)
+            api_anomalies = self.detect_and_plot_api_error_anomalies(total_requests_data, output_dir)
         return {"pod_anomalies": pod_anomalies, "api_anomalies": api_anomalies}
     
 

@@ -19,7 +19,7 @@ class RedisMetricsFetcher:
         self.memory_threshold = float(config.get("REDIS_MEMORY_DIFFERENCE_THRESHOLD", 10.0))
         self.capacity_threshold = float(config.get("REDIS_CAPACITY_DIFFERENCE_THRESHOLD", 10.0))
         self.allow_instance_anomalies = config.get("ALLOW_INSTANCE_ANOMALIES", False)
-        self.time_function = TimeFunction()
+        self.time_function = TimeFunction(config)
 
 
     def get_cache_instance_endpoints(self, cluster_instances):

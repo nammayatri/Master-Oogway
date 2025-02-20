@@ -26,7 +26,7 @@ class SlackMessenger:
         self.target_hour = config_data.get("TARGET_HOURS", 10)
         self.target_minute = config_data.get("TARGET_MINUTES", 0)
         self.time_delta = config_data.get("TIME_DELTA", {"hours": 1})
-        self.time_function = TimeFunction()
+        self.time_function = TimeFunction(config_data)
 
         if not self.slack_token:
             raise ValueError("❌ Missing Slack Bot Token.")
@@ -205,21 +205,22 @@ class SlackMessenger:
         content.append(table)
         content.append(Spacer(1, 12))
 
-    def send_pdf_report_on_slack(self, data, filename="Anomaly_Report.pdf",file_path=None):
+    def send_pdf_report_on_slack(self, filename="Anomaly_Report.pdf",file_path=None,thread_ts=None,channel_id=None, message = None ):
         """Generate and send a PDF anomaly report to Slack."""
         self.client.files_upload_v2(
-            channel=self.default_channel,
+            channel=channel_id or self.default_channel,
             file=file_path,
             filename=filename,
             title="🚨 "+filename,
-            initial_comment="📄 @here Master Oogway :oogway: has returned with wisdom \n " + get_master_oogway_quotes(),
+            initial_comment="@here Master Oogway :oogway: has returned with wisdom :) ==> \n\n " + (get_master_oogway_quotes() if message is None else message),
+            thread_ts=thread_ts
         )
         os.remove(file_path) 
         logging.info(f"✅ PDF Report Sent to Slack: {filename}")
         return file_path
     
 
-    def generate_current_report_and_send_on_slack(self,data, filename="System_Metrics_Report.pdf"):
+    def generate_current_report_and_send_on_slack(self,data, filename="System_Metrics_Report.pdf",thread_ts=None,channel_id=None):
         """
         Generates a structured PDF report and sends it to Slack.
         """
@@ -349,8 +350,7 @@ class SlackMessenger:
             return None
 
         try:
-
-            self.send_pdf_report_on_slack(data, filename, file_path)
+            self.send_pdf_report_on_slack(filename, file_path,thread_ts=thread_ts,channel_id=channel_id)
         except SlackApiError as e:
             logging.error(f"❌ Slack API Error (PDF Upload): {e.response['error']}")
 
@@ -365,7 +365,8 @@ class SlackMessenger:
         """
         Generates a structured PDF report from anomaly data.
         - Istio Metrics at the top.
-        - Pod & API Anomalies with images (2 per row).
+        - Pod-wise errors in the middle.
+        - Pod-wise anomalies at the bottom.
         """
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
@@ -428,8 +429,39 @@ class SlackMessenger:
             content.append(Spacer(1, 12))
             content.append(PageBreak())
 
+        if "istio_pod_wise_errors" in data and len(data["istio_pod_wise_errors"]) > 0:
+            content.append(Paragraph("🔹 Pod Errors", header_style))
+            content.append(Spacer(1, 6))
+
+            pod_metric_table = [["Service", "2xx", "3xx", "4xx", "5xx", "0DC", "Unknown"]]
+            for pod, metrics in data["istio_pod_wise_errors"].items():
+                pod_metric_table.append([
+                    Paragraph(pod, wrap_style),
+                    metrics.get("2xx", 0),
+                    metrics.get("3xx", 0),
+                    metrics.get("4xx", 0),
+                    metrics.get("5xx", 0),
+                    metrics.get("0DC", 0),
+                    metrics.get("unknown", 0),
+                ])
+
+            table = Table(pod_metric_table, colWidths=[200, 50, 50, 50, 50, 50, 50])
+            table.setStyle(TableStyle([ 
+                ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("BOTTOMPADDING", (0, 0), (-1, 0), 12),
+                ("BACKGROUND", (0, 1), (-1, -1), colors.beige),
+                ("GRID", (0, 0), (-1, -1), 1, colors.black),
+            ]))
+            
+            content.append(table)
+            content.append(Spacer(1, 12))
+            content.append(PageBreak())
+
         if "pod_anomalies" in data and len(data["pod_anomalies"]) > 0:
-            content.append(Paragraph("🔹 Pod Anomalies", header_style))
+            content.append(Paragraph("🔹 Pods CPU/Memory Graph", header_style))
             content.append(Spacer(1, 6))
 
             for pod, image_paths in data["pod_anomalies"].items():
@@ -458,14 +490,14 @@ class SlackMessenger:
         doc.build(content)
         return output_pdf
     
-    def send_5xx_0dc_report(self,data, filename="Current_Anomaly_Report.pdf"):
+    def send_5xx_0dc_report(self,data, filename="Current_Errors_Anomaly_Report.pdf",thread_ts=None,channel_id=None , message = None):
         """
         Generate a structured PDF report for 5xx and 0DC anomalies and send it to Slack.
         """
         print("\n🚀 Generating & Sending Current Anomaly Report to Slack...")
         file_path = self.generate_5xx_0dc_report(data, filename)
         try:
-            self.send_pdf_report_on_slack(data, filename, file_path)
+            self.send_pdf_report_on_slack(filename, file_path,thread_ts=thread_ts,channel_id=channel_id, message = message)
         except SlackApiError as e:
             logging.error(f"❌ Slack API Error (PDF Upload): {e.response['error']}")
         finally:

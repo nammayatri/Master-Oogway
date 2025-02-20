@@ -1,5 +1,8 @@
 {
   "AWS_REGION": "ap-south-1",
+  "HOST": "0.0.0.0",
+  "API_ENDPOINT": "/api/someapi",
+  "PORT": 8000,
   "KUBERNETES_CLUSTER_NAME": "eks-kurukshetra",
   "RDS_CLUSTER_IDENTIFIERS": ["atlas-customer-cluster-v1-cluster", "atlas-driver-v1-cluster"],
   "REDIS_CLUSTER_IDENTIFIERS": ["beckn-redis-cluster-001"],
@@ -13,13 +16,18 @@
   "REDIS_MEMORY_DIFFERENCE_THRESHOLD": 10,
   "REDIS_CAPACITY_DIFFERENCE_THRESHOLD": 10,
   "TIME_DELTA": {"hours": 1},
+  "DEFAULT_TIME_DELTA": {"minutes": 30},
   "TIME_OFFSET_DAYS": 7,
   "TARGET_HOURS": 13,
   "TARGET_MINUTES": 0,
   "PROMETHEUS_URL": "http://your-prometheus-server:9090",
   "KUBERNETES_NAMESPACE": "atlas",
-  "SLACK_BOT_TOKEN": "xoxb-xxxxxxxxxxxx-xxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "SLACK_BOT_TOKEN": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
   "SLACK_CHANNEL_ID": "xxxxxxxxxxxx",
+  "ALERT_CHANNEL_NAME": "#namma-yatri-sre",
+  "GEMINI_API_KEY":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "ALLOWED_USER_IDS": [],
+  "SLACK_THREAD_API": "https://slack.com/api/conversations.replies",
   "VMSELECT_URL": "http://localhost:8481/select/0/prometheus/api/v1",
   "QUERY_STEP_RANGE": "1m",
   "API_LIST": [
@@ -77,7 +85,7 @@
   },
   "APPLICATION_CPU_THRESHOLD": 80,
   "APPLICATION_MEMORY_THRESHOLD": 90,
-  "APPLICATION_CONSECUTIVE_DATAPOINTS": 5,
+  "APPLICATION_CONSECUTIVE_DATAPOINTS": 3,
   "SKIP_MEMORY_CHECK_SERVICES": [
     "beckn-driver-offer-allocator-service",
     "beckn-lts-healthcheck",
@@ -88,11 +96,13 @@
     "beckn-bpp-dashboard"
   ],
   "SKIP_CPU_CHECK_SERVICES": ["beckn-location"],
+  "SKIP_ERROR_CHECK_SERVICES": ["beckn-lts-healthcheck-production","beckn-osrm"],
   "SCHEDULE_INTERVAL_DAYS": 0,
   "SCHEDULE_TIME": "13:50",
-  "ERROR_5XX_THRESHOLD": 5,
-  "ERROR_0DC_THRESHOLD": 5,
+  "ERROR_5XX_THRESHOLD": 50,
+  "ERROR_0DC_THRESHOLD": 50,
   "API_5XX_THRESHOLD": 5,
-  "ERROR_CONSECUTIVE_DATAPOINTS": 2
+  "ERROR_CONSECUTIVE_DATAPOINTS": 1,
+  "API_KEYS": ["some-key"]
 
 }

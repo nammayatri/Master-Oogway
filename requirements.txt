@@ -1,0 +1,13 @@
+boto3==1.35.95
+fastapi==0.115.8
+kubernetes==32.0.0
+matplotlib==3.10.0
+pytz==2024.2
+redis==5.2.1
+reportlab==4.3.1
+requests==2.32.3
+uvicorn==0.34.0
+apscheduler==3.10.4
+slack_sdk==3.27.0
+python-multipart
+python-multipart==0.0.9

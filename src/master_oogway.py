@@ -1,3 +1,4 @@
+import random
 import requests
 import logging
 from load_config import load_config
@@ -31,35 +32,44 @@ def get_master_oogway_quotes(other_data=None):
 
     data = {
         "action": "openai_process",
-        "text": "You are Master Oogway from Kung Fu Panda. Generate a conclusion statement that is funny and wise."
-                + (f" Generate a funny statement using this data: {string_data}" if other_data else ""),
+        "text": (
+            "You are Master Oogway from Kung Fu Panda, a wise and funny Kung Fu master. "
+            "Give a **tech-related** quote that is **simple, funny, and full of wisdom**. "
+            "Use **easy words, daily life examples, and desi-style humor**. "
+            "Make it sound like an **old wise man giving life advice**, but related to **coding, software, startups, or tech jobs**. "
+            "Remember, **simple, funny, and wise**. "
+            "It should be short and easy to understand. like an indian engineer english."
+            + (f" Use this extra information while creating the quote: {string_data}" if other_data else "")
+        ),
         "language": "English",
         "ideas": "1",
-        "tone": "Funny Insightful",
+        "tone": "Witty, Simple, Wise",
         "model": "gpt-3.5-turbo",
         "length": "1",
-        "temperature": "0.5"
+        "temperature": "0.6"
     }
 
     try:
-        response = requests.post(RELIABLESOFT_API_URL, headers=headers, data=data)
+        response = requests.post(RELIABLESOFT_API_URL,
+                                 headers=headers, data=data)
         response.raise_for_status()
-
         json_data = response.json()
-
         if json_data.get("success") and json_data.get("data"):
             quotes_text = json_data["data"]["data"]["choices"][0]["message"]["content"]
             quotes_list = quotes_text.split("\n\n")  # Split by double newlines
-            return quotes_list[0]
+            index = random.randint(0, len(quotes_list) - 1)
+            return quotes_list[index].strip()
         else:
-            logging.error("❌ Failed to fetch quotes: Unexpected response format")
+            logging.error(
+                "❌ Failed to fetch quotes: Unexpected response format")
             return "Master Oogway is silent today... Try again later!"
 
     except requests.exceptions.RequestException as e:
         logging.error(f"❌ Error fetching quotes: {e}")
         return "Master Oogway's connection to wisdom is lost... Try again later!"
 
-def get_master_oogway_gemini_quotes(prompt=""):
+
+def get_master_oogway_insights(prompt=""):
     """
     Calls the Gemini API and fetches the best Oogway wisdom quote.
 
@@ -72,7 +82,12 @@ def get_master_oogway_gemini_quotes(prompt=""):
 
         data = {
             "contents": [{
-                "parts": [{"text": f"You are Master Oogway. if prompt is about talking then talk else give the best reply suitable, prompt is : {prompt}"}]
+                "parts": [{"text": f"""
+            - If the prompt involves **discussion, reflection, or deep thought**, respond with profound wisdom, using metaphors and parables.
+            - If the prompt is **casual, conversational, or humorous**, respond with wit and playfulness.
+            - If the prompt is **a question seeking information**, provide the most insightful and relevant answer, in a clear and concise manner.
+            Here is the prompt: {prompt}
+            """}]
             }]
         }
 
@@ -83,7 +98,8 @@ def get_master_oogway_gemini_quotes(prompt=""):
         )
 
         if response.status_code != 200:
-            logging.error(f"❌ API Error {response.status_code}: {response.text}")
+            logging.error(
+                f"❌ API Error {response.status_code}: {response.text}")
             return "Master Oogway is silent today... Try again later!"
 
         response_data = response.json()
@@ -109,4 +125,53 @@ def get_master_oogway_gemini_quotes(prompt=""):
     except requests.exceptions.RequestException as e:
         logging.error(f"❌ Request Exception: {e}")
         return "Master Oogway's connection to the universe is lost... Try again later!"
-    
+
+
+def get_master_oogway_summarise_text(data):
+    """
+    Calls the Gemini API and fetches the best Oogway wisdom quote.
+
+    :param prompt: The wisdom-related question or request.
+    :return: A string containing Oogway's wisdom.
+    """
+    try:
+        data = {
+            "contents": [{
+                "parts": [{"text": f"Summarize the following slack message data: {data}"}]
+            }]
+        }
+
+        response = requests.post(
+            GEMINI_API_URL,
+            headers={"Content-Type": "application/json"},
+            json=data
+        )
+
+        if response.status_code != 200:
+            logging.error(
+                f"❌ API Error {response.status_code}: {response.text}")
+            return "Master Oogway is silent today... Try again later!"
+
+        response_data = response.json()
+
+        # Extract the best candidate response
+        candidates = response_data.get("candidates", [])
+        best_response = None
+
+        for candidate in candidates:
+            text_parts = candidate.get("content", {}).get("parts", [])
+            for part in text_parts:
+                if part.get("text"):
+                    best_response = part["text"]
+                    break
+            if best_response:
+                break
+
+        if not best_response:
+            return "Master Oogway has no words... Perhaps reflect in silence."
+
+        return best_response.strip()
+
+    except requests.exceptions.RequestException as e:
+        logging.error(f"❌ Request Exception: {e}")
+        return "Master Oogway's connection to the universe is lost... Try again later!"
