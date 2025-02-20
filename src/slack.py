@@ -36,11 +36,11 @@ class SlackMessenger:
         self.client = WebClient(token=self.slack_token)
         logging.basicConfig(level=logging.INFO)
 
-    def send_message(self, text, channel=None):
+    def send_message(self, text, channel=None, thread_ts=None):
         """Send a simple Slack message."""
         channel = channel or self.default_channel
         try:
-            result = self.client.chat_postMessage(channel=channel, text=text)
+            result = self.client.chat_postMessage(channel=channel, text=text, thread_ts=thread_ts)
             logging.info(f"✅ Slack Message Sent: {text}")
             return result
         except SlackApiError as e:
@@ -212,7 +212,7 @@ class SlackMessenger:
             file=file_path,
             filename=filename,
             title="🚨 "+filename,
-            initial_comment="📄 @here Master Oogway :oogway: has returned with wisdom - " + get_master_oogway_quotes(data),
+            initial_comment="📄 @here Master Oogway :oogway: has returned with wisdom \n " + get_master_oogway_quotes(),
         )
         os.remove(file_path) 
         logging.info(f"✅ PDF Report Sent to Slack: {filename}")
@@ -472,98 +472,4 @@ class SlackMessenger:
             if os.path.exists(file_path):
                 os.remove(file_path)
                 logging.info(f"🗑️ Deleted Temporary File: {file_path}")
-
-
-if __name__ == "__main__":
-    config_data = load_config()
-    slack_messenger = SlackMessenger(config_data)
-    dummydata ={
-    "pod_anomalies": {
-        "beckn-location-tracking-service-production": [
-            "anomaly_plots/beckn-location-tracking-service-production-305669v1-655cd7n2d2t_anomalies.png",
-            "anomaly_plots/beckn-location-tracking-service-production-305669v1-655cd7mnccc_anomalies.png",
-            "anomaly_plots/beckn-location-tracking-service-production-305669v1-655cd7kn6zl_anomalies.png"
-        ],
-        "beckn-driver-offer-bpp-production": [
-            "anomaly_plots/beckn-driver-offer-bpp-production-0edb6f-5f748747b7-pn77h_anomalies.png",
-            "anomaly_plots/beckn-driver-offer-bpp-production-0edb6f-5f748747b7-4gc45_anomalies.png",
-            "anomaly_plots/beckn-driver-offer-bpp-production-0edb6f-5f748747b7-rgp5b_anomalies.png",
-            "anomaly_plots/beckn-driver-offer-bpp-production-0edb6f-5f748747b7-vdsrp_anomalies.png",
-            "anomaly_plots/beckn-driver-offer-bpp-production-0edb6f-5f748747b7-mhfbh_anomalies.png",
-            "anomaly_plots/beckn-driver-offer-bpp-production-0edb6f-5f748747b7-7dqxl_anomalies.png"
-        ],
-        "beckn-app-backend-production-pilot": [
-            "anomaly_plots/beckn-app-backend-production-pilot-928f09-7ddd4c6644-zmmh4_anomalies.png"
-        ]
-    },
-    "api_anomalies": [
-        "anomaly_plots/POST beckn-driver-offer-bpp-production :merchantIdservicejuspaypayment 500_anomalies.png",
-        "anomaly_plots/POST beckn-driver-offer-bpp-production beckn:merchantIdstatus 500_anomalies.png",
-        "anomaly_plots/POST beckn-driver-offer-bpp-production dashboard:merchantId:citybookingsync 500_anomalies.png",
-        "anomaly_plots/POST beckn-driver-offer-bpp-production serviceidfyverification 500_anomalies.png",
-        "anomaly_plots/POST beckn-driver-offer-bpp-production uiauth 500_anomalies.png",
-        "anomaly_plots/POST beckn-driver-offer-bpp-production uicallEvent 500_anomalies.png",
-        "anomaly_plots/GET beckn-driver-offer-bpp-production uidrivercleardues 500_anomalies.png",
-        "anomaly_plots/POST beckn-driver-offer-bpp-production uidriverride:rideIdend 500_anomalies.png",
-        "anomaly_plots/GET beckn-driver-offer-bpp-production uiexotelcallcustomernumber 500_anomalies.png",
-        "anomaly_plots/POST beckn-driver-offer-bpp-production uifeedbackrateRide 500_anomalies.png",
-        "anomaly_plots/POST beckn-app-backend-production-pilot v2mapsgetPlaceName 500_anomalies.png",
-        "anomaly_plots/POST beckn-app-backend-production-pilot v2profile 500_anomalies.png",
-        "anomaly_plots/POST beckn-app-backend-production-pilot v2ride:rideIddriverlocation 503_anomalies.png",
-        "anomaly_plots/POST beckn-app-backend-production-pilot v2rideBooking:rideBookingIdcancel 500_anomalies.png"
-    ],
-    "istio_metrics": {
-        "beckn-driver-offer-bpp-production": {
-            "2xx": 1388703,
-            "3xx": 0,
-            "4xx": 17086,
-            "5xx": 66,
-            "0DC": 172,
-            "unknown": 0
-        },
-        "beckn-location-tracking-service-production": {
-            "2xx": 9260180,
-            "3xx": 0,
-            "4xx": 71192,
-            "5xx": 311,
-            "0DC": 324,
-            "unknown": 0
-        },
-        "beckn-lts-healthcheck-production": {
-            "2xx": 0,
-            "3xx": 0,
-            "4xx": 0,
-            "5xx": 967,
-            "0DC": 0,
-            "unknown": 0
-        },
-        "beckn-osrm": {
-            "2xx": 470534,
-            "3xx": 0,
-            "4xx": 7,
-            "5xx": 396,
-            "0DC": 0,
-            "unknown": 0
-        },
-        "beckn-safety-dashboard-production": {
-            "2xx": 0,
-            "3xx": 0,
-            "4xx": 0,
-            "5xx": 744,
-            "0DC": 0,
-            "unknown": 0
-        },
-        "beckn-app-backend-production-pilot": {
-            "2xx": 2959701,
-            "3xx": 0,
-            "4xx": 6997,
-            "5xx": 49,
-            "0DC": 274,
-            "unknown": 0
-        }
-    },
-    "Start Time": "2025-02-19 18:16",
-    "End Time": "2025-02-19 18:46"
-}
-    slack_messenger.send_5xx_0dc_report(dummydata)
 
