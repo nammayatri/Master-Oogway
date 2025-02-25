@@ -26,6 +26,7 @@
   "SLACK_CHANNEL_ID": "xxxxxxxxxxxx",
   "ALERT_CHANNEL_NAME": "#namma-yatri-sre",
   "GEMINI_API_KEY":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "DOLPHIN_API_KEY":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
   "ALLOWED_USER_IDS": [],
   "SLACK_THREAD_API": "https://slack.com/api/conversations.replies",
   "VMSELECT_URL": "http://localhost:8481/select/0/prometheus/api/v1",

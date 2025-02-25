@@ -2,10 +2,13 @@ import random
 import requests
 import logging
 from load_config import load_config
+from openai import OpenAI
+
 
 config = load_config()
 # Set your Gemini API key here (or load from env)
 GEMINI_API_KEY = config.get("GEMINI_API_KEY")
+DOLPHIN_API_KEY = config.get("DOLPHIN_API_KEY")
 
 # API URL for Gemini
 GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
@@ -82,12 +85,7 @@ def get_master_oogway_insights(prompt=""):
 
         data = {
             "contents": [{
-                "parts": [{"text": f"""
-            - If the prompt involves **discussion, reflection, or deep thought**, respond with profound wisdom, using metaphors and parables.
-            - If the prompt is **casual, conversational, or humorous**, respond with wit and playfulness.
-            - If the prompt is **a question seeking information**, provide the most insightful and relevant answer, in a clear and concise manner.
-            Here is the prompt: {prompt}
-            """}]
+                "parts": [{"text": prompt}]
             }]
         }
 
@@ -137,7 +135,7 @@ def get_master_oogway_summarise_text(data):
     try:
         data = {
             "contents": [{
-                "parts": [{"text": f"Summarize the following slack message data: {data}"}]
+                "parts": [{"text": f"Summarize the following slack message data so that anyone could understand what's the context: {data}"}]
             }]
         }
 
@@ -175,3 +173,26 @@ def get_master_oogway_summarise_text(data):
     except requests.exceptions.RequestException as e:
         logging.error(f"❌ Request Exception: {e}")
         return "Master Oogway's connection to the universe is lost... Try again later!"
+
+
+def call_dolphin(prompt):
+    client = OpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=DOLPHIN_API_KEY
+    )
+    completion = client.chat.completions.create(
+    extra_headers={
+        "HTTP-Referer": "<YOUR_SITE_URL>", # Optional. Site URL for rankings on openrouter.ai.
+        "X-Title": "<YOUR_SITE_NAME>", # Optional. Site title for rankings on openrouter.ai.
+    },
+    extra_body={},
+    model="cognitivecomputations/dolphin3.0-r1-mistral-24b:free",
+    messages=[
+        {
+        "role": "user",
+        "content": prompt
+        }
+    ]
+    )
+    return(completion.choices[0].message.content)
+

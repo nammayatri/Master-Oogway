@@ -1,4 +1,5 @@
 import json
+import shutil
 import matplotlib
 import requests
 import matplotlib.pyplot as plt
@@ -116,6 +117,54 @@ class ApplicationMetricsFetcher:
             aggregated_results[key][category] += int(total_count)  # Convert to int for readability
 
         return aggregated_results
+    
+    def get_search_to_ride_metrics(self, start_time=None, end_time=None, output_dir="anomaly_plots"):
+        query = "(sum(rate(ride_created_count[1m])) / sum(rate(search_request_count[1m]))) * 100"
+        start, end = self.time_to_epoch(start_time, end_time)
+        print(f"🚀 Fetching Search to Ride Conversion Query: {query}\n")
+        search_to_ride_data = self.fetch_metric(query, start, end)
+        file_path = self.plot_search_to_ride_metrics(search_to_ride_data, output_dir)
+        return file_path, search_to_ride_data
+    
+    def plot_search_to_ride_metrics(self, search_to_ride_data, output_dir="anomaly_plots"):
+        """
+        Plot the Search to Ride Conversion metrics.
+        """
+        def convert_epoch_to_time(epoch_list):
+            """Convert epoch timestamps to human-readable time format in Indian Standard Time (IST)."""
+            return [
+                (datetime.fromtimestamp(ts, tz=timezone.utc) + timedelta(hours=5, minutes=30)).strftime('%H:%M')
+                for ts in epoch_list
+            ]
+        if not search_to_ride_data:
+            print("❌ No Search to Ride Conversion data found.")
+            return None
+
+        timestamps, values = zip(*[(int(timestamp), float(value)) for timestamp, value in search_to_ride_data["data"]["result"][0]["values"]])
+        plt.figure(figsize=(12, 6))
+        timestamps = convert_epoch_to_time(timestamps)
+        numeric_timestamps = list(range(len(timestamps)))  # Create sequential indices
+        output_dir = os.path.join(output_dir, "search_to_ride"+datetime.now().strftime("%Y%m%d%H%M%S"))
+        os.makedirs(output_dir, exist_ok=True)
+        plt.plot(numeric_timestamps, values, label="Error Rate (%)", marker='o', linestyle="-", color='green')
+        plt.scatter([numeric_timestamps[i] for i in range(len(values)) if values[i] > 10], 
+                    [values[i] for i in range(len(values)) if values[i] > 10], zorder=3 )
+
+        plt.xticks(numeric_timestamps[::2], timestamps[::2], rotation=45, ha="right")
+        plt.xlabel("Timestamp")
+        plt.xticks(range(0, len(timestamps), 2), timestamps[::2], rotation=45, ha="right")
+        plt.ylabel("Conversion Rate (%)")
+        plt.title("Search to Ride Conversion Rate")
+        plt.axhline(y=40, color='red', linestyle='--', label="Threshold: 40%")
+        plt.legend()
+        plt.grid(True, linestyle="--", alpha=0.5)
+        plt.tight_layout()
+        file_path = os.path.join(output_dir, "search_to_ride.png")
+        plt.savefig(file_path)
+        plt.close()
+        return file_path
+        
+    
 
     def fetch_application_request_metrics(self, start_time=None, end_time=None):
         """
@@ -228,16 +277,14 @@ class ApplicationMetricsFetcher:
                 except IsADirectoryError:
                     pass  
 
-    def delete_directory(self,directory_path="anomaly_plots"):
+    def delete_directory(self, directory_path="anomaly_plots"):
         """Deletes the directory and all its contents."""
-        os.makedirs(directory_path, exist_ok=True)
-        for file in os.listdir(directory_path):
-            file_path = os.path.join(directory_path, file)
-            try:
-                os.remove(file_path)
-            except IsADirectoryError:
-                pass
-        os.rmdir(directory_path)
+        try:
+            if os.path.exists(directory_path):
+                print(f"🗑️ Deleting directory: {directory_path}")
+                shutil.rmtree(directory_path)  # ✅ This removes everything (files & subdirectories)
+        except Exception as e:
+            print(f"❌ Error deleting directory {directory_path}: {e}")
         
 
     def detect_and_plot_mem_cpu_anomalies_per_pod(self, cpu_data, memory_data, output_dir="anomaly_plots"):
@@ -627,3 +674,4 @@ class ApplicationMetricsFetcher:
 
         return anomalies
     
+

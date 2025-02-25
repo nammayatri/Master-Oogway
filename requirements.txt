@@ -11,3 +11,4 @@ apscheduler==3.10.4
 slack_sdk==3.27.0
 python-multipart
 python-multipart==0.0.9
+openai

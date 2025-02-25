@@ -107,7 +107,22 @@ class SlackMessenger:
             self.add_section(content, "RDS Anomalies", data.get("rds_anomaly", []), header_style, normal_style, bold_style, red_bold_style)
             self.add_section(content, "Redis Anomalies", data.get("redis_anomaly", []), header_style, normal_style, bold_style, red_bold_style)
             self.add_section(content, "Application & Istio Anomalies", data.get("application_anomaly", []), header_style, normal_style, bold_style, red_bold_style)
-            
+            content.append(PageBreak())
+
+            if "search_to_ride_metrics" in data:
+                ride_to_search_metrics_current , ride_to_search_metrics_past = data["search_to_ride_metrics"]
+                content.append(Paragraph("📌 Ride to Search Metrics", header_style))
+                content.append(Spacer(1, 12))
+                content.append(Paragraph("🔹 <b>Currrent Ride to Search Ratio Metrics</b>", bold_style))
+                img = Image(ride_to_search_metrics_current, width=500, height=300)
+                content.append(img)
+                content.append(Spacer(1, 12))
+                content.append(Paragraph("🔹 <b>Past Ride to Search Ratio Metrics</b>", bold_style))
+                img = Image(ride_to_search_metrics_past, width=500, height=300)
+                content.append(img)
+                content.append(Spacer(1, 12))
+                content.append(PageBreak())
+
             self.add_deployment_section(content, f"🚀 Deployments in past {self.days} days", data.get("active_deployments", []), header_style, normal_style)
             doc.build(content)
             logging.info(f"✅ PDF Report Generated: {file_path}")
@@ -315,6 +330,16 @@ class SlackMessenger:
                     ]))
                     content.append(table)
                     content.append(Spacer(1, 12))
+                    content.append(PageBreak())
+
+            if "search_to_ride_metrics" in data:
+                ride_to_search_metrics = data["search_to_ride_metrics"]
+                content.append(Paragraph(" 📌 Ride to Search Metrics", header_style))
+                content.append(Spacer(1, 12))
+                img = Image(ride_to_search_metrics, width=500, height=300)
+                content.append(img)
+                content.append(Spacer(1, 12))
+                content.append(PageBreak())
 
             # 📈 **Add Application Metrics**
             if "application_metrics" in data:
@@ -459,6 +484,15 @@ class SlackMessenger:
             content.append(table)
             content.append(Spacer(1, 12))
             content.append(PageBreak())
+
+        if "search_to_ride_metrics" in data and len(data["search_to_ride_metrics"]) > 0:
+            content.append(Paragraph("🔹 Search to Ride Metrics", header_style))
+            content.append(Spacer(1, 6))
+            img = Image(data["search_to_ride_metrics"], width=550, height=270)
+            content.append(img)
+            content.append(Spacer(1, 12))
+            content.append(PageBreak())
+
 
         if "pod_anomalies" in data and len(data["pod_anomalies"]) > 0:
             content.append(Paragraph("🔹 Pods CPU/Memory Graph", header_style))

@@ -85,6 +85,12 @@ class MetricsFetcher:
 
         # print(f"Current Application Metrics: {current_app_metrics}")
         # print(f"Past Application Metrics: {past_app_metrics}")
+    def get_ride_to_search_metrics(self,start_date_time=None,end_date_time=None,output_dir="anomaly_graphs"):
+        print("\n🚀 Fetching & Analyzing Ride to Search Metrics...")
+        current_datetime, past_datetime = self.resolve_datetime(start_date_time=start_date_time, end_date_time=end_date_time)
+        get_search_to_ride_metrics_current , _ = self.app_metrics_fetcher.get_search_to_ride_metrics(start_time=current_datetime[0], end_time=current_datetime[1],output_dir=output_dir)
+        get_search_to_ride_metrics_past , _ = self.app_metrics_fetcher.get_search_to_ride_metrics(start_time=past_datetime[0], end_time=past_datetime[1],output_dir=output_dir)
+        return get_search_to_ride_metrics_current,get_search_to_ride_metrics_past
 
     def fetch_and_analyze_all_metrics(self, time_offset_days=None, target_hours=None, target_minutes=None, start_date_time=None, end_date_time=None, thread_ts=None, channel_id=None, now_time_delta=None, time_delta=None):
         """Fetch and analyze all system metrics, and send Slack alerts if anomalies are detected."""
@@ -102,13 +108,14 @@ class MetricsFetcher:
         rds_anomaly = self.fetch_and_analyze_rds_metrics(start_date_time,end_date_time)
         redis_anomaly = self.fetch_and_analyze_redis_metrics(start_date_time,end_date_time)
         application_anomaly = self.fetch_and_analyze_application_and_istio_metrics(start_date_time,end_date_time)
-
-        # If any anomalies are found, check for recent deployments
+        output_dir = "anomaly_graphs" + datetime.now().strftime("%Y%m%d%H%M%S%f")
+        ride_to_search_anomaly_current, ride_to_search_anomaly_past = self.get_ride_to_search_metrics(start_date_time,end_date_time,output_dir)
         active_deployments = []
         if any(len(anomaly) > 0 for anomaly in [rds_anomaly, redis_anomaly, application_anomaly]):
             active_deployments = self.get_recent_active_deployments()
-            file_path = self.slack.create_anomaly_pdf({"rds_anomaly": rds_anomaly, "redis_anomaly": redis_anomaly, "application_anomaly": application_anomaly, "active_deployments": active_deployments}, start_date_time, end_date_time)
+            file_path = self.slack.create_anomaly_pdf({"rds_anomaly": rds_anomaly, "redis_anomaly": redis_anomaly, "application_anomaly": application_anomaly, "active_deployments": active_deployments,"search_to_ride_metrics":[ride_to_search_anomaly_current,ride_to_search_anomaly_past]}, start_date_time, end_date_time)
             self.slack.send_pdf_report_on_slack(file_path=file_path, thread_ts=thread_ts, channel_id=channel_id)
+        self.app_metrics_fetcher.delete_directory(output_dir)
         return
 
     def get_current_metrics (self,start_time=None,end_time=None,time_delta=None,thread_ts=None,channel_id=None):
@@ -117,8 +124,11 @@ class MetricsFetcher:
         current_rds_metrics = self.rds_fetcher.fetch_rds_metrics(start_time=current_time, end_time=end_time)
         current_redis_metrics = self.redis_fetcher.get_all_redis_cluster_metrics(metrics_start_time=current_time, metrics_end_time=end_time)
         current_app_metrics = self.app_metrics_fetcher.fetch_all_prom_metrics(start_time=current_time, end_time=end_time)
-        data = {"rds_metrics":current_rds_metrics,"redis_metrics":current_redis_metrics,"application_metrics":current_app_metrics,"start":self.time_function.convert_time(current_time.strftime("%Y-%m-%d %H:%M:%S")),"end":self.time_function.convert_time(end_time.strftime("%Y-%m-%d %H:%M:%S"))}
+        output_dir = "anomaly_graphs" + datetime.now().strftime("%Y%m%d%H%M%S%f")
+        ride_to_search_metrics_current, _ = self.app_metrics_fetcher.get_search_to_ride_metrics(start_time=current_time, end_time=end_time, output_dir=output_dir)
+        data = {"rds_metrics":current_rds_metrics,"redis_metrics":current_redis_metrics,"application_metrics":current_app_metrics,"search_to_ride_metrics":ride_to_search_metrics_current,"start":self.time_function.convert_time(current_time.strftime("%Y-%m-%d %H:%M:%S")),"end":self.time_function.convert_time(end_time.strftime("%Y-%m-%d %H:%M:%S"))}
         self.slack.generate_current_report_and_send_on_slack(data,thread_ts=thread_ts,channel_id=channel_id)
+        self.app_metrics_fetcher.delete_directory(output_dir)
         return data
 
     def generate_slack_alert_text(self, metrics_data, start_time=None, end_time=None):
@@ -171,6 +181,8 @@ class MetricsFetcher:
         output_dir = "anomaly_graphs" + datetime.now().strftime("%Y%m%d%H%M%S%f")
         result = self.app_metrics_fetcher.get_5xx_or_0dc_graph(metrix_5xx_or_0DC, start_time=current_time, end_time=end_time, output_dir=output_dir)
         current_time_ist, end_time_ist = self.time_function.convert_time(current_time.strftime("%Y-%m-%d %H:%M:%S"), from_tz="UTC"), self.time_function.convert_time(end_time.strftime("%Y-%m-%d %H:%M:%S"), from_tz="UTC")
+        get_search_to_ride_metrics , _ = self.app_metrics_fetcher.get_search_to_ride_metrics(start_time=current_time, end_time=end_time, output_dir=output_dir)
+        result["search_to_ride_metrics"] = get_search_to_ride_metrics
         slack_message = self.generate_slack_alert_text(istio_metrics, start_time=current_time_ist, end_time=end_time_ist)
         result["istio_metrics"] = istio_metrics
         result["istio_pod_wise_errors"] = istio_pod_wise_errors
@@ -189,6 +201,5 @@ if __name__ == "__main__":
     metrics_fetcher = MetricsFetcher()
     metrics_fetcher.fetch_and_analyze_all_metrics()
     metrics_fetcher.get_current_metrics()
-    print(metrics_fetcher.get_current_5xx_or_0DC())
     (metrics_fetcher.get_current_5xx_or_0DC())  
 

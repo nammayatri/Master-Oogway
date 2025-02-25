@@ -9,7 +9,7 @@ from load_config import load_config
 from fastapi.responses import JSONResponse, HTMLResponse
 from slack import SlackMessenger
 from home import home_res
-from master_oogway import get_master_oogway_insights,get_master_oogway_summarise_text
+from master_oogway import get_master_oogway_insights,get_master_oogway_summarise_text,call_dolphin
 import re
 import requests
 
@@ -235,6 +235,11 @@ def call_oogway(event):
             thread_text = get_thread_messages(event)
             slack_messenger.send_message(channel=event["channel"], text="🔍 Detecting Issue...... Please wait!!!",thread_ts=event.get("ts"))
             handle_slack_message(event,text=thread_text,channel_id=event["channel"])
+        elif "usedolphin" in cleaned_text:
+            cleaned_text = cleaned_text.replace("usedolphin","").strip()
+            print("🐬 Fetching Dolphin's Response...")
+            dolphin_message = call_dolphin(cleaned_text)
+            slack_messenger.send_message(channel=event["channel"], text=dolphin_message, thread_ts=event.get("ts"))
         else:
             print("🐢 Fetching Oogway's Quote...")
             oogway_message = get_master_oogway_insights(prompt=cleaned_text)
