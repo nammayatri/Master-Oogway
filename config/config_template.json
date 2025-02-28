@@ -1,0 +1,95 @@
+{
+    "AWS_REGION": "ap-south-1",
+    "HOST": "0.0.0.0",
+    "API_ENDPOINT": "/someapi",
+    "PORT": 8000,
+    "KUBERNETES_CLUSTER_NAME": "some-cluster",
+    "RDS_CLUSTER_IDENTIFIERS": [
+        "some-cluster-1",
+        "some-cluster-2"
+    ],
+    "REDIS_CLUSTER_IDENTIFIERS": [
+        "some-redis-cluster"
+    ],
+    "DEFAULT_PERIOD": 60,
+    "MAX_BIGKEY_SIZE_MB": 10,
+    "RDS_CPU_DIFFERENCE_THRESHOLD": 10,
+    "RDS_CONNECTIONS_DIFFERENCE_THRESHOLD": 100,
+    "REPLICA_THRESHOLD": 1,
+    "ALLOW_INSTANCE_ANOMALIES": false,
+    "REDIS_CPU_DIFFERENCE_THRESHOLD": 10,
+    "REDIS_MEMORY_DIFFERENCE_THRESHOLD": 10,
+    "REDIS_CAPACITY_DIFFERENCE_THRESHOLD": 10,
+    "TIME_DELTA": {
+        "hours": 1
+    },
+    "DEFAULT_TIME_DELTA": {
+        "minutes": 30
+    },
+    "TIME_OFFSET_DAYS": 7,
+    "TARGET_HOURS": 13,
+    "TARGET_MINUTES": 0,
+    "PROMETHEUS_URL": "http://your-prometheus-server:9090",
+    "KUBERNETES_NAMESPACE": "atlas",
+    "SLACK_BOT_TOKEN": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "SLACK_CHANNEL_ID": "xxxxxxxxxxxx",
+    "ALERT_CHANNEL_NAME": "#namma-yatri-sre",
+    "GEMINI_API_KEY": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "DOLPHIN_API_KEY": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "ALLOWED_USER_IDS": [],
+    "IGNORED_USER_IDS": [],
+    "SLACK_THREAD_API": "https://slack.com/api/conversations.replies",
+    "VMSELECT_URL": "http://localhost:8481/select/0/prometheus/api/v1",
+    "QUERY_STEP_RANGE": "1m",
+    "API_LIST": [],
+    "APP_TIME_DELTA": {
+        "hours": 1
+    },
+    "ISTIO_METRICS": {
+        "REQUEST_COUNT_THRESHOLDS": {
+            "2xx": 5000,
+            "3xx": 500,
+            "4xx": 500,
+            "5xx": 50,
+            "0DC": 100
+        },
+        "PERCENTAGE_CHANGE_THRESHOLDS": {
+            "2xx": 50,
+            "3xx": 20,
+            "4xx": 30,
+            "5xx": 40,
+            "0DC": 25
+        }
+    },
+    "APPLICATION_METRICS": {
+        "REQUEST_COUNT_THRESHOLDS": {
+            "2xx": 10000,
+            "3xx": 1000,
+            "4xx": 500,
+            "5xx": 100,
+            "0DC": 100
+        },
+        "PERCENTAGE_CHANGE_THRESHOLDS": {
+            "2xx": 50,
+            "3xx": 20,
+            "4xx": 30,
+            "5xx": 40,
+            "0DC": 25
+        }
+    },
+    "APPLICATION_CPU_THRESHOLD": 80,
+    "APPLICATION_MEMORY_THRESHOLD": 90,
+    "APPLICATION_CONSECUTIVE_DATAPOINTS": 3,
+    "SKIP_MEMORY_CHECK_SERVICES": [],
+    "SKIP_CPU_CHECK_SERVICES": [],
+    "SKIP_ERROR_CHECK_SERVICES": [],
+    "SCHEDULE_INTERVAL_DAYS": 0,
+    "SCHEDULE_TIME": "13:50",
+    "ERROR_5XX_THRESHOLD": 50,
+    "ERROR_0DC_THRESHOLD": 50,
+    "API_5XX_THRESHOLD": 5,
+    "ERROR_CONSECUTIVE_DATAPOINTS": 1,
+    "API_KEYS": [
+        "some-key"
+    ]
+}
