@@ -10,11 +10,9 @@ from datetime import datetime, timedelta, timezone
 
 class ApplicationMetricsFetcher:
     def __init__(self, config):
-        """
-        Initialize the VictoriaMetrics API fetcher.
-        """
-        self.api_list = config.get("API_LIST", [])  # List of API paths
-        self.vmselect_url = config.get("VMSELECT_URL", f"http://localhost:8481/select/0/prometheus/api/v1")
+        """Initialize the VictoriaMetrics API fetcher."""
+        self.api_list = config.get("API_LIST", [])
+        self.vmselect_url = config.get("VMSELECT_URL", "http://localhost:8481/select/0/prometheus/api/v1")
         self.query_step_range = config.get("QUERY_STEP_RANGE", "10m")
         self.namespace = config.get("KUBERNETES_NAMESPACE", "atlas")
         self.cpu_threshold = config.get("APPLICATION_CPU_THRESHOLD", 80)
@@ -29,27 +27,22 @@ class ApplicationMetricsFetcher:
         self.ERROR_0DC_THRESHOLD = config.get("ERROR_0DC_THRESHOLD", 10)
         self.API_5XX_THRESHOLD = config.get("API_5XX_THRESHOLD", 10)
         self.error_consecutive_datapoints = config.get("ERROR_CONSECUTIVE_DATAPOINTS", 2)
-        matplotlib.use('Agg')
+        matplotlib.use("Agg")
 
 
     def time_to_epoch(self, start_time, end_time):
-        """
-        Convert datetime objects to epoch timestamps.
-        """
+        """Convert datetime objects to epoch timestamps."""
         if not start_time or not end_time:
             raise ValueError("Both start_time and end_time must be provided.")
-        
+
         start_time = start_time if isinstance(start_time, int) else int(start_time.timestamp())
         end_time = end_time if isinstance(end_time, int) else int(end_time.timestamp())
         return start_time, end_time
     
     def fetch_metric(self, query, start, end, step="1m"):
-        """
-        Fetch metrics from VictoriaMetrics.
-        """
+        """Fetch metrics from VictoriaMetrics."""
         params = {"query": query, "start": start, "end": end, "step": step}
         url = f"{self.vmselect_url}/query_range"
-
         response = requests.get(url, params=params)
         if response.status_code == 200:
             return response.json()
@@ -58,67 +51,51 @@ class ApplicationMetricsFetcher:
             return None
 
     def build_api_filter(self):
-        """
-        Generate **correct** PromQL filter for multiple APIs.
-        """
+        """Generate a PromQL filter for multiple APIs."""
         if not self.api_list:
             return ""
 
         include_filter = f'handler=~"({"|".join(api.strip() for api in self.api_list)})"'
-
-        # ✅ **Exclude `/v2/` & `/ui/` APIs**
         exclude_filter = 'handler!="/v2/", handler!="/ui/"'
-
         return f"{include_filter}, {exclude_filter}"
 
     def aggregate_app_metric_by_labels(self, metric_data):
-        """
-        Extracts and aggregates values from a metric query response by method, handler, service, and groups them by 2xx, 3xx, 4xx, and 5xx status codes.
-
-        :param metric_data: JSON response from VictoriaMetrics
-        :return: Dictionary with aggregated totals grouped by (method, handler, service) and separated by status_code categories (2xx, 3xx, 4xx, 5xx)
-        """
+        """Aggregate metric values by method, handler, service, and status code categories."""
         if not metric_data or "data" not in metric_data or "result" not in metric_data["data"]:
-            return {} 
+            return {}
 
         aggregated_results = {}
-
         for series in metric_data["data"]["result"]:
-            # Extract labels
             labels = series["metric"]
             method = labels.get("method", "unknown")
             handler = labels.get("handler", "unknown")
             service = labels.get("service", "unknown")
             status_code = labels.get("status_code", "unknown")
 
-            # Define the category (2xx, 3xx, 4xx, 5xx)
-            if status_code.startswith("2"):
-                category = "2xx"
-            elif status_code.startswith("3"):
-                category = "3xx"
-            elif status_code.startswith("4"):
-                category = "4xx"
-            elif status_code.startswith("5"):
-                category = "5xx"
-            else:
-                category = "unknown"
-
-            # Unique key for aggregation (ignoring specific status codes but grouping them separately)
+            category = self._get_status_category(status_code)
             key = f"{method} {service} {handler}"
-
-            # Initialize structure if not present
             if key not in aggregated_results:
                 aggregated_results[key] = {"2xx": 0, "3xx": 0, "4xx": 0, "5xx": 0, "unknown": 0}
 
-            # Sum all values in the series
             total_count = sum(float(value[1]) for value in series["values"])
-
-            # Store in dictionary under the appropriate category
-            aggregated_results[key][category] += int(total_count)  # Convert to int for readability
+            aggregated_results[key][category] += int(total_count)
 
         return aggregated_results
-    
+
+    def _get_status_category(self, status_code):
+        """Determine status code category (2xx, 3xx, 4xx, 5xx, unknown)."""
+        if status_code.startswith("2"):
+            return "2xx"
+        elif status_code.startswith("3"):
+            return "3xx"
+        elif status_code.startswith("4"):
+            return "4xx"
+        elif status_code.startswith("5"):
+            return "5xx"
+        return "unknown"
+        
     def get_search_to_ride_metrics(self, start_time=None, end_time=None, output_dir="anomaly_plots"):
+        """Fetch and plot Search to Ride Conversion metrics."""
         query = "(sum(rate(ride_created_count[1m])) / sum(rate(search_request_count[1m]))) * 100"
         start, end = self.time_to_epoch(start_time, end_time)
         print(f"🚀 Fetching Search to Ride Conversion Query: {query}\n")
@@ -127,164 +104,180 @@ class ApplicationMetricsFetcher:
         return file_path, search_to_ride_data
     
     def plot_search_to_ride_metrics(self, search_to_ride_data, output_dir="anomaly_plots"):
-        """
-        Plot the Search to Ride Conversion metrics.
-        """
-        def convert_epoch_to_time(epoch_list):
-            """Convert epoch timestamps to human-readable time format in Indian Standard Time (IST)."""
-            return [
-                (datetime.fromtimestamp(ts, tz=timezone.utc) + timedelta(hours=5, minutes=30)).strftime('%H:%M')
-                for ts in epoch_list
-            ]
-        if not search_to_ride_data:
+        """Plot the Search to Ride Conversion metrics."""
+        if not search_to_ride_data or "data" not in search_to_ride_data:
             print("❌ No Search to Ride Conversion data found.")
             return None
 
-        timestamps, values = zip(*[(int(timestamp), float(value)) for timestamp, value in search_to_ride_data["data"]["result"][0]["values"]])
+        timestamps, values = zip(*[(int(ts), float(val)) for ts, val in search_to_ride_data["data"]["result"][0]["values"]])
         plt.figure(figsize=(12, 6))
-        timestamps = convert_epoch_to_time(timestamps)
-        numeric_timestamps = list(range(len(timestamps)))  # Create sequential indices
-        output_dir = os.path.join(output_dir, "search_to_ride"+datetime.now().strftime("%Y%m%d%H%M%S"))
-        os.makedirs(output_dir, exist_ok=True)
-        plt.plot(numeric_timestamps, values, label="Ratio (%)", marker='o', linestyle="-", color='green')
-        plt.scatter([numeric_timestamps[i] for i in range(len(values)) if values[i] > 10], 
-                    [values[i] for i in range(len(values)) if values[i] > 10], zorder=3 )
+        human_timestamps = self._convert_epoch_to_time(timestamps)
+        numeric_timestamps = list(range(len(human_timestamps)))
 
-        plt.xticks(numeric_timestamps[::2], timestamps[::2], rotation=45, ha="right")
+        output_path = os.path.join(output_dir, f"search_to_ride_{datetime.now().strftime('%Y%m%d%H%M%S')}")
+        os.makedirs(output_path, exist_ok=True)
+
+        plt.plot(numeric_timestamps, values, label="Ratio (%)", marker="o", linestyle="-", color="green")
+        plt.scatter(
+            [numeric_timestamps[i] for i in range(len(values)) if values[i] > 10],
+            [val for val in values if val > 10],
+            zorder=3,
+        )
+        plt.xticks(numeric_timestamps[::2], human_timestamps[::2], rotation=45, ha="right")
         plt.xlabel("Timestamp")
-        plt.xticks(range(0, len(timestamps), 2), timestamps[::2], rotation=45, ha="right")
         plt.ylabel("Conversion Rate (%)")
         plt.title("Search to Ride Conversion Rate")
-        plt.axhline(y=40, color='red', linestyle='--', label="Threshold: 40%")
+        plt.axhline(y=40, color="red", linestyle="--", label="Threshold: 40%")
         plt.legend()
         plt.grid(True, linestyle="--", alpha=0.5)
         plt.tight_layout()
-        file_path = os.path.join(output_dir, "search_to_ride.png")
+
+        file_path = os.path.join(output_path, "search_to_ride.png")
         plt.savefig(file_path)
         plt.close()
         return file_path
-        
+
+    def _convert_epoch_to_time(self, epoch_list):
+        """Convert epoch timestamps to IST human-readable format."""
+        return [
+            (datetime.fromtimestamp(ts, tz=timezone.utc) + timedelta(hours=5, minutes=30)).strftime("%H:%M")
+            for ts in epoch_list
+        ]    
     
 
     def fetch_application_request_metrics(self, start_time=None, end_time=None):
-        """
-        Fetch all critical application-level API metrics and calculate totals.
-        """
-        # if time is not in epoch format then convert it to epoch format
+        """Fetch and aggregate application-level API metrics."""
         start, end = self.time_to_epoch(start_time, end_time)
         api_filter = self.build_api_filter()
-        
-        # **🔹 Total Request Count (All 2xx,3xx,4xx,5xx)**
-        
-        total_api_requests_query = f"sum(increase(http_request_duration_seconds_count{{{api_filter}}}[{self.query_step_range}])) by (method, handler, service, status_code)"
+        query = (
+            f"sum(increase(http_request_duration_seconds_count{{{api_filter}}}"
+            f"[{self.query_step_range}])) by (method, handler, service, status_code)"
+        )
 
-        print(f"🚀 Fetching Total API Requests Query: {total_api_requests_query}\n")
-        total_requests_data = self.fetch_metric(total_api_requests_query, start, end,self.query_step_range)
-        total_requests = self.aggregate_app_metric_by_labels(total_requests_data)
-        return total_requests
+        print(f"🚀 Fetching Total API Requests Query: {query}\n")
+        total_requests_data = self.fetch_metric(query, start, end, self.query_step_range)
+        return self.aggregate_app_metric_by_labels(total_requests_data)
     
-    def aggregate_istio_metric_by_labels(self, metric_data,is_pod=False):
+    def aggregate_istio_metric_by_labels(self, metric_data, is_pod=False):
+        """Aggregate Istio metrics by service or pod and status code categories."""
         if not metric_data or "data" not in metric_data or "result" not in metric_data["data"]:
             return {}
 
         aggregated_results = {}
-
         for series in metric_data["data"]["result"]:
-            # Extract labels
             labels = series["metric"]
             service_name = labels.get("destination_service_name", "unknown")
             response_code = labels.get("response_code", "unknown")
             pod = labels.get("pod", "")
 
-            # Define the category (2xx, 3xx, 4xx, 5xx)
-            if response_code.startswith("2"):
-                category = "2xx"
-            elif response_code.startswith("3"):
-                category = "3xx"
-            elif response_code.startswith("4"):
-                category = "4xx"
-            elif response_code.startswith("5"):
-                category = "5xx"
-            elif response_code.startswith("0"):
-                category = "0DC"
-            else:
-                category = "unknown"
+            category = self._get_istio_status_category(response_code)
+            key = f"{service_name} {pod}".strip() if not is_pod else pod.strip()
 
-            # Unique key for aggregation (ignoring specific status codes but grouping them separately)
-            key = f"{service_name}" + f" {pod}" if not is_pod else f"{pod}"
-            key = key.strip()
-
-            # Initialize structure if not present
             if key not in aggregated_results:
                 aggregated_results[key] = {"2xx": 0, "3xx": 0, "4xx": 0, "5xx": 0, "0DC": 0, "unknown": 0}
 
-            # Sum all values in the series
             total_count = sum(float(value[1]) for value in series["values"])
-
-            # Store in dictionary under the appropriate category
             aggregated_results[key][category] += int(total_count)
-        
-        # sort all the keys by 5xx +0dc count
-        aggregated_results = dict(sorted(aggregated_results.items(), key=lambda item: item[1]["5xx"] + item[1]["0DC"], reverse=True))
 
-        return aggregated_results
-    
+        return dict(sorted(aggregated_results.items(), key=lambda item: item[1]["5xx"] + item[1]["0DC"], reverse=True))
+
+    def _get_istio_status_category(self, response_code):
+        """Determine Istio response code category."""
+        if response_code.startswith("2"):
+            return "2xx"
+        elif response_code.startswith("3"):
+            return "3xx"
+        elif response_code.startswith("4"):
+            return "4xx"
+        elif response_code.startswith("5"):
+            return "5xx"
+        elif response_code.startswith("0"):
+            return "0DC"
+        return "unknown"
 
     def fetch_istio_metrics(self, start_time=None, end_time=None):
-        """
-        Fetch all critical application-level API metrics and calculate totals.
-        """
+        """Fetch and aggregate Istio metrics."""
         start, end = self.time_to_epoch(start_time, end_time)
-        # **🔹 Total Request Count (All 2xx,3xx,4xx,5xx)
-        total_istio_requests_query = f"sum(increase(istio_requests_total{{destination_service_name!=\"istio-telemetry\", reporter=\"destination\"}}[{self.query_step_range}])) by (destination_service_name, response_code)"
-        print("🚀 Fetching Total Istio request service level: ", total_istio_requests_query,"\n")
-        total_istio_requests = self.fetch_metric(total_istio_requests_query, start, end,self.query_step_range)
+        query = (
+            f"sum(increase(istio_requests_total{{destination_service_name!=\"istio-telemetry\", "
+            f"reporter=\"destination\"}}[{self.query_step_range}])) "
+            "by (destination_service_name, response_code)"
+        )
+        print(f"🚀 Fetching Total Istio request service level: {query}\n")
+        total_istio_requests = self.fetch_metric(query, start, end, self.query_step_range)
         aggregated_istio_requests = self.aggregate_istio_metric_by_labels(total_istio_requests)
-
-        return aggregated_istio_requests , total_istio_requests
+        return aggregated_istio_requests, total_istio_requests
     
-    def fetch_istio_metrics_pod_wise_errors(self, start_time=None, end_time=None,service_names=None):
+    def fetch_istio_metrics_pod_wise_errors(self, start_time=None, end_time=None, service_names=None):
+        """Fetch pod-wise Istio error metrics."""
         start, end = self.time_to_epoch(start_time, end_time)
-        total_istio_requests_query = f"sum by (destination_service_name, pod, response_code, response_flags) ((label_replace(increase(istio_requests_total{{response_code!~\"(2..|3..)\", destination_service_name!=\"istio-telemetry\", reporter=\"destination\"}}[{self.query_step_range}]), \"pod_ip\", \"$1\", \"instance\", \"^(.*):[0-9]+$\") * on (pod_ip) group_left(pod) (max by (pod_ip, pod) (kube_pod_info))))"
+        base_query = (
+            "sum by (destination_service_name, pod, response_code, response_flags) "
+            "((label_replace(increase(istio_requests_total{response_code!~\"(2..|3..)\", "
+            "destination_service_name!=\"istio-telemetry\", reporter=\"destination\"}"
+            f"[{self.query_step_range}]), \"pod_ip\", \"$1\", \"instance\", \"^(.*):[0-9]+$\") "
+            "* on (pod_ip) group_left(pod) (max by (pod_ip, pod) (kube_pod_info))))"
+        )
+
         if service_names:
-            service_names = "destination_service_name=~\"(" + "|".join(service_names) + ")\""
-            total_istio_requests_query = f"sum by (pod, response_code, response_flags) ((label_replace(increase(istio_requests_total{{response_code!~\"(2..|3..)\", destination_service_name!=\"istio-telemetry\", {service_names}, reporter=\"destination\"}}[{self.query_step_range}]), \"pod_ip\", \"$1\", \"instance\", \"^(.*):[0-9]+$\") * on (pod_ip) group_left(pod) (max by (pod_ip, pod) (kube_pod_info))))"
-        print("🚀 Fetching Total Istio request erros pod level: ", total_istio_requests_query,"\n")
-        total_istio_requests = self.fetch_metric(total_istio_requests_query, start, end,self.query_step_range)
-        aggregated_istio_requests = self.aggregate_istio_metric_by_labels(total_istio_requests,is_pod=True)
-        return aggregated_istio_requests
+            service_filter = f"destination_service_name=~\"({'|'.join(service_names)})\", "
+            query = (
+                "sum by (pod, response_code, response_flags) "
+                f"((label_replace(increase(istio_requests_total{{response_code!~\"(2..|3..)\", "
+                f"destination_service_name!=\"istio-telemetry\", {service_filter}"
+                f"reporter=\"destination\"}}[{self.query_step_range}]), \"pod_ip\", \"$1\", "
+                f"\"instance\", \"^(.*):[0-9]+$\") * on (pod_ip) group_left(pod) "
+                "(max by (pod_ip, pod) (kube_pod_info))))"
+            )
+        else:
+            query = base_query
+
+        print(f"🚀 Fetching Total Istio request errors pod level: {query}\n")
+        total_istio_requests = self.fetch_metric(query, start, end, self.query_step_range)
+        return self.aggregate_istio_metric_by_labels(total_istio_requests, is_pod=True)
     
 
-    def fetch_individual_cpu_and_memory(self, start_time=None, end_time=None,pod=None,services=None):
-        start_time , end_time = self.time_to_epoch(start_time, end_time)
-        services = pod if pod else services + ".*" if services else ".*"
-        total_cpu_usage_query = f"sum(rate(container_cpu_usage_seconds_total{{namespace=\"{self.namespace}\", image!=\"\", container!=\"POD\", image!=\"\", pod=~\"{services}\", node=~\".*\"}}[1m])) by (pod, node)  / 2 / sum(kube_pod_container_resource_requests{{unit=\"core\",namespace=\"{self.namespace}\", container!=\"POD\", pod=~\"{services}\"}}) by (pod, node) * 100"
-        total_memory_usage_query = f"(sum(container_memory_working_set_bytes{{namespace=\"{self.namespace}\", image!=\"\", container!=\"POD\", image!=\"\", pod=~\"{services}\", node=~\".*\"}}) by (pod, node) / 2 / sum(kube_pod_container_resource_requests{{unit=\"byte\",namespace=\"{self.namespace}\", container!=\"POD\", pod=~\"{services}\"}}) by (pod, node) * 100)"
-        print("🚀 Fetching Total CPU Usage Query: ", total_cpu_usage_query,"\n"
-            "🚀 Fetching Total Memory Usage Query: ", total_memory_usage_query,"\n"
-            )
-        total_cpu_usage = self.fetch_metric(total_cpu_usage_query, start_time, end_time)
-        total_memory_usage = self.fetch_metric(total_memory_usage_query, start_time, end_time)
+    def fetch_individual_cpu_and_memory(self, start_time=None, end_time=None, pod=None, services=None):
+        """Fetch CPU and memory usage metrics for pods or services."""
+        start_time, end_time = self.time_to_epoch(start_time, end_time)
+        services = pod if pod else f"{services}.*" if services else ".*"
+
+        cpu_query = (
+            f"sum(rate(container_cpu_usage_seconds_total{{namespace=\"{self.namespace}\", "
+            f"image!=\"\", container!=\"POD\", pod=~\"{services}\", node=~\".*\"}}[1m])) "
+            "by (pod, node) / 2 / sum(kube_pod_container_resource_requests{"
+            f"unit=\"core\", namespace=\"{self.namespace}\", container!=\"POD\", "
+            f"pod=~\"{services}\"}}) by (pod, node) * 100"
+        )
+        memory_query = (
+            f"(sum(container_memory_working_set_bytes{{namespace=\"{self.namespace}\", "
+            f"image!=\"\", container!=\"POD\", pod=~\"{services}\", node=~\".*\"}}) "
+            "by (pod, node) / 2 / sum(kube_pod_container_resource_requests{"
+            f"unit=\"byte\", namespace=\"{self.namespace}\", container!=\"POD\", "
+            f"pod=~\"{services}\"}}) by (pod, node) * 100)"
+        )
+
+        print(f"🚀 Fetching Total CPU Usage Query: {cpu_query}\n")
+        print(f"🚀 Fetching Total Memory Usage Query: {memory_query}\n")
+        total_cpu_usage = self.fetch_metric(cpu_query, start_time, end_time)
+        total_memory_usage = self.fetch_metric(memory_query, start_time, end_time)
         return total_cpu_usage, total_memory_usage
         
-    def clean_directory(self,directory_path="anomaly_plots"):
-            """Removes all files inside the directory while keeping the folder."""
-            os.makedirs(directory_path, exist_ok=True)  # Ensure directory exists
-            for file in os.listdir(directory_path):
-                file_path = os.path.join(directory_path, file)
-                try:
-                    os.remove(file_path)  
-                except IsADirectoryError:
-                    pass  
+    def clean_directory(self, directory_path="anomaly_plots"):
+        """Remove all files inside the directory while keeping the folder."""
+        os.makedirs(directory_path, exist_ok=True)
+        for file in os.listdir(directory_path):
+            file_path = os.path.join(directory_path, file)
+            try:
+                os.remove(file_path)
+            except IsADirectoryError:
+                pass
 
     def delete_directory(self, directory_path="anomaly_plots"):
-        """Deletes the directory and all its contents."""
-        try:
-            if os.path.exists(directory_path):
-                print(f"🗑️ Deleting directory: {directory_path}")
-                shutil.rmtree(directory_path)  # ✅ This removes everything (files & subdirectories)
-        except Exception as e:
-            print(f"❌ Error deleting directory {directory_path}: {e}")
+        """Delete the directory and all its contents."""
+        if os.path.exists(directory_path):
+            print(f"🗑️ Deleting directory: {directory_path}")
+            shutil.rmtree(directory_path)
         
 
     def detect_and_plot_mem_cpu_anomalies_per_pod(self, cpu_data, memory_data, output_dir="anomaly_plots"):
@@ -392,9 +385,7 @@ class ApplicationMetricsFetcher:
 
 
     def fetch_all_prom_metrics(self, start_time=None, end_time=None):
-        """
-        Fetch all application and Istio metrics.
-        """
+        """Fetch all application and Istio metrics."""
         app_metrics = self.fetch_application_request_metrics(start_time, end_time)
         istio_metrics,_ = self.fetch_istio_metrics(start_time, end_time)
 
@@ -522,7 +513,6 @@ class ApplicationMetricsFetcher:
             start, end = self.time_to_epoch(start_time, end_time)
             total_requests_data = self.fetch_metric(query, start, end, self.query_step_range)
 
-        # Detect and plot anomalies for each service in 0DC list
         for service, data in cpu_memory_data.items():
             res = self.detect_and_plot_mem_cpu_anomalies_per_pod(data["cpu"], data["memory"], output_dir)
             if res:
@@ -532,7 +522,6 @@ class ApplicationMetricsFetcher:
         if total_requests_data:
             api_anomalies = self.detect_and_plot_api_error_anomalies(total_requests_data, output_dir)
         return {"pod_anomalies": pod_anomalies, "api_anomalies": api_anomalies}
-    
 
     def detect_and_plot_api_error_anomalies(self, api_data, output_dir="anomaly_plots"):
         """
@@ -614,13 +603,7 @@ class ApplicationMetricsFetcher:
         
 
     def detect_application_istio_anomalies(self, current_data, past_data):
-        """
-        Detect anomalies by checking the percentage increase in metrics from past data to current data.
-
-        :param current_data: Dictionary with current data (e.g. from today's metrics)
-        :param past_data: Dictionary with past data (e.g. from previous metrics)
-        :return: List of anomalies detected
-        """
+        """Detect anomalies by comparing current and past metrics."""
         anomalies = []
         threshold_config = {
             "APPLICATION_METRICS": self.application_metrics,  # Loaded from config
