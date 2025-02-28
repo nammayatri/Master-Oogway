@@ -1,20 +1,20 @@
+import os
+import re
+import json
+import tempfile
+import logging
+from datetime import datetime, timezone
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable,PageBreak
-import tempfile
-import logging
-import os
-from datetime import datetime, timezone
+from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table, 
+                                TableStyle, Image, HRFlowable, PageBreak)
+from reportlab.lib.enums import TA_CENTER
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from load_config import load_config
 from time_function import TimeFunction
-from reportlab.lib.enums import TA_CENTER
 from master_oogway import get_master_oogway_quotes
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
-import json
-import re
 
 
 
@@ -498,19 +498,17 @@ class SlackMessenger:
             content.append(Paragraph("🔹 Pod Errors", header_style))
             content.append(Spacer(1, 6))
 
-            pod_metric_table = [["Service", "2xx", "3xx", "4xx", "5xx", "0DC", "Unknown"]]
+            pod_metric_table = [["Service", "4xx", "5xx", "0DC", "Unknown"]]
             for pod, metrics in data["istio_pod_wise_errors"].items():
                 pod_metric_table.append([
                     Paragraph(pod, wrap_style),
-                    metrics.get("2xx", 0),
-                    metrics.get("3xx", 0),
                     metrics.get("4xx", 0),
                     metrics.get("5xx", 0),
                     metrics.get("0DC", 0),
                     metrics.get("unknown", 0),
                 ])
 
-            table = Table(pod_metric_table, colWidths=[200, 50, 50, 50, 50, 50, 50])
+            table = Table(pod_metric_table, colWidths=[220, 50, 50, 50, 50])
             table.setStyle(TableStyle([ 
                 ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
                 ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),

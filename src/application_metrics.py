@@ -146,7 +146,7 @@ class ApplicationMetricsFetcher:
         numeric_timestamps = list(range(len(timestamps)))  # Create sequential indices
         output_dir = os.path.join(output_dir, "search_to_ride"+datetime.now().strftime("%Y%m%d%H%M%S"))
         os.makedirs(output_dir, exist_ok=True)
-        plt.plot(numeric_timestamps, values, label="Error Rate (%)", marker='o', linestyle="-", color='green')
+        plt.plot(numeric_timestamps, values, label="Ratio (%)", marker='o', linestyle="-", color='green')
         plt.scatter([numeric_timestamps[i] for i in range(len(values)) if values[i] > 10], 
                     [values[i] for i in range(len(values)) if values[i] > 10], zorder=3 )
 
@@ -245,10 +245,10 @@ class ApplicationMetricsFetcher:
     
     def fetch_istio_metrics_pod_wise_errors(self, start_time=None, end_time=None,service_names=None):
         start, end = self.time_to_epoch(start_time, end_time)
-        total_istio_requests_query = f"sum by (destination_service_name, pod, response_code, response_flags) ((label_replace(increase(istio_requests_total{{response_code!~\"(2..|3..|4..)\", destination_service_name!=\"istio-telemetry\", reporter=\"destination\"}}[{self.query_step_range}]), \"pod_ip\", \"$1\", \"instance\", \"^(.*):[0-9]+$\") * on (pod_ip) group_left(pod) (max by (pod_ip, pod) (kube_pod_info))))"
+        total_istio_requests_query = f"sum by (destination_service_name, pod, response_code, response_flags) ((label_replace(increase(istio_requests_total{{response_code!~\"(2..|3..)\", destination_service_name!=\"istio-telemetry\", reporter=\"destination\"}}[{self.query_step_range}]), \"pod_ip\", \"$1\", \"instance\", \"^(.*):[0-9]+$\") * on (pod_ip) group_left(pod) (max by (pod_ip, pod) (kube_pod_info))))"
         if service_names:
             service_names = "destination_service_name=~\"(" + "|".join(service_names) + ")\""
-            total_istio_requests_query = f"sum by (pod, response_code, response_flags) ((label_replace(increase(istio_requests_total{{response_code!~\"(2..|3..|4..)\", destination_service_name!=\"istio-telemetry\", {service_names}, reporter=\"destination\"}}[{self.query_step_range}]), \"pod_ip\", \"$1\", \"instance\", \"^(.*):[0-9]+$\") * on (pod_ip) group_left(pod) (max by (pod_ip, pod) (kube_pod_info))))"
+            total_istio_requests_query = f"sum by (pod, response_code, response_flags) ((label_replace(increase(istio_requests_total{{response_code!~\"(2..|3..)\", destination_service_name!=\"istio-telemetry\", {service_names}, reporter=\"destination\"}}[{self.query_step_range}]), \"pod_ip\", \"$1\", \"instance\", \"^(.*):[0-9]+$\") * on (pod_ip) group_left(pod) (max by (pod_ip, pod) (kube_pod_info))))"
         print("🚀 Fetching Total Istio request erros pod level: ", total_istio_requests_query,"\n")
         total_istio_requests = self.fetch_metric(total_istio_requests_query, start, end,self.query_step_range)
         aggregated_istio_requests = self.aggregate_istio_metric_by_labels(total_istio_requests,is_pod=True)
