@@ -98,14 +98,14 @@ def handle_slash_command(
             print("time_delta",time_delta)
             # slack_messenger.send_message(text=f"Master Oogway :oogway: is  🔍 Fetching Current Metrics... You will be notified in `{ALERT_CHANNEL_NAME}` channel.",channel=channel_id,thread_ts=thread_ts)
             background_tasks.add_task(metrics_fetcher.get_current_metrics, thread_ts=thread_ts,channel_id=channel_id, time_delta=time_delta)
-            return JSONResponse({"response_type": "in_channel", "text": "🔍 Fetching Current Metrics... You will be notified in `#namma-yatri-sre` channel"})
+            return JSONResponse({"response_type": "in_channel", "text": "🔍 Fetching Current Metrics... You will be notified in `{ALERT_CHANNEL_NAME}` channel."})
         
         elif command == "/generate_5xx_0dc_report":
             text = text.strip().lower()
             time_delta = int(text.split(" ")[0]) if text else None
             # slack_messenger.send_message(text=f"Master Oogway :oogway: is  🔍 Fetching 5xx or 0DC Metrics... ou will be notified in `{ALERT_CHANNEL_NAME}` channel.",channel=channel_id,thread_ts=thread_ts)
             background_tasks.add_task(metrics_fetcher.get_current_5xx_or_0DC, thread_ts=thread_ts,channel_id=channel_id, time_delta=time_delta)
-            return JSONResponse({"response_type": "in_channel", "text": "🔍 Fetching 5xx or 0DC Metrics... You will be notified in `#namma-yatri-sre` channel."})
+            return JSONResponse({"response_type": "in_channel", "text": "🔍 Fetching 5xx or 0DC Metrics... You will be notified in `{ALERT_CHANNEL_NAME}` channel."})
         
         elif command == "/fetch_anamoly":
             logging.info("📡 Triggering Metrics Fetch Function...")

@@ -483,7 +483,7 @@ class ApplicationMetricsFetcher:
             "0DC": filtered_0DC
         }
         istio_pod_wise_errors = self.fetch_istio_metrics_pod_wise_errors(start_time, end_time,service_names=affected_services)
-        istio_pod_wise_errors = filter_pod_wise_errors(istio_pod_wise_errors)
+        istio_pod_wise_errors = filter_pod_wise_errors(istio_pod_wise_errors, threshold_5xx=self.ERROR_5XX_THRESHOLD, threshold_0dc=self.ERROR_0DC_THRESHOLD)
         return result, filtered_istio_metrics, istio_pod_wise_errors
     
     def get_5xx_or_0dc_graph(self, service_metrics=None, start_time=None, end_time=None,output_dir="anomaly_plots"):

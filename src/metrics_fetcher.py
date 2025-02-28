@@ -189,7 +189,7 @@ class MetricsFetcher:
         result["Start Time"] = self.time_function.convert_time(current_time.strftime("%Y-%m-%d %H:%M:%S"), from_tz="UTC")
         result["End Time"] = self.time_function.convert_time(end_time.strftime("%Y-%m-%d %H:%M:%S"), from_tz="UTC")
         print(result["pod_anomalies"], result["api_anomalies"], len(result["pod_anomalies"]), len(result["api_anomalies"]), "-------------------Anomalies")
-        if len(result["pod_anomalies"]) > 0 or len(result["api_anomalies"]) > 0:
+        if len(result["pod_anomalies"]) > 0 or len(result["api_anomalies"]) > 0 or len(result["search_to_ride_metrics"]) > 0 or len(result["istio_pod_wise_errors"]) > 0:
             self.slack.send_5xx_0dc_report(result, thread_ts=thread_ts, channel_id=channel_id, message=slack_message)
         else:
             self.slack.send_message(slack_message, thread_ts=thread_ts, channel=channel_id)
