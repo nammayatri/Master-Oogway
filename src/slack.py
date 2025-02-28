@@ -265,8 +265,8 @@ class SlackMessenger:
     def send_pdf_report_on_slack(self, filename="Anomaly_Report.pdf",file_path=None,thread_ts=None,channel_id=None, message = None ):
         """Generate and send a PDF anomaly report to Slack."""
         initial_comment = (
-            f"@here 🚨 **Master Oogway has returned with insights!** 🐢\n\n"
-            f"➡️ {message or ("*Wisdom of the day:* " + get_master_oogway_quotes())}\n\n"
+            f"@here 🚨 *Master Oogway has returned with insights!* 🐢\n\n"
+            f"{message or ("*Wisdom of the day:* " + get_master_oogway_quotes())}\n\n"
             f"📎 *The latest anomaly report is attached.*"
         )
         self.client.files_upload_v2(
@@ -274,7 +274,7 @@ class SlackMessenger:
             file=file_path,
             filename=filename,
             title="🚨 "+filename,
-            initial_comment="@here Master Oogway :oogway: has returned with insights and a quote :) ==> \n\n " + (get_master_oogway_quotes() if message is None else message),
+            initial_comment=initial_comment,
             thread_ts=thread_ts
         )
         os.remove(file_path) 

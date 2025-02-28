@@ -80,7 +80,7 @@ def get_master_oogway_quotes(other_data=None):
             "Give a **tech-related** quote that is **simple, funny, and full of wisdom**. "
             "Use **easy words, daily life examples, and desi-style humor**. "
             "Make it sound like an **old wise man giving life advice**, but related to **coding, software, startups, or tech jobs**. "
-            "It should be short and easy to understand, like an Indian engineer speaking English."
+            "It should be very short and easy like one or two liners to understand, like an Indian engineer speaking English."
             + extra_info
         ),
         "language": "English",

@@ -184,6 +184,7 @@ class MetricsFetcher:
         get_search_to_ride_metrics , _ = self.app_metrics_fetcher.get_search_to_ride_metrics(start_time=current_time, end_time=end_time, output_dir=output_dir)
         result["search_to_ride_metrics"] = get_search_to_ride_metrics
         slack_message = self.generate_slack_alert_text(istio_metrics, start_time=current_time_ist, end_time=end_time_ist)
+        print("slack_message", slack_message)
         result["istio_metrics"] = istio_metrics
         result["istio_pod_wise_errors"] = istio_pod_wise_errors
         result["Start Time"] = self.time_function.convert_time(current_time.strftime("%Y-%m-%d %H:%M:%S"), from_tz="UTC")
