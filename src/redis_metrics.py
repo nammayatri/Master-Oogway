@@ -12,7 +12,7 @@ class RedisMetricsFetcher:
         self.cloudwatch = boto3.client('cloudwatch', region_name=self.region)
         self.elasticache = boto3.client('elasticache', region_name=self.region)
         self.default_period = int(config.get("DEFAULT_PERIOD", 60))  # Default to 60 seconds if not specified
-        self.cluster_ids = config.get("REDIS_CLUSTER_IDENTIFIERS", ["beckn-redis-cluster-001"])
+        self.cluster_ids = config.get("REDIS_CLUSTER_IDENTIFIERS", [""])
         self.max_bigkey_size_mb = int(config.get("MAX_BIGKEY_SIZE_MB", 10))  # Default to 10 MB if not specified
         self.redis_time_delta = config.get("TIME_DELTA", {"hours": 1})
         self.cpu_threshold = float(config.get("REDIS_CPU_DIFFERENCE_THRESHOLD", 10.0))

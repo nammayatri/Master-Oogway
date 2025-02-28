@@ -254,30 +254,6 @@ class RDSMetricsFetcher:
 
 
 
-# if __name__ == "__main__":
-#     fetcher = RDSMetricsFetcher({
-#         "AWS_REGION": "ap-south-1",
-#         "DEFAULT_PERIOD": 3600,
-#         "CPU_THRESHOLD": 10,
-#         "CONN_THRESHOLD": 10,
-#         "REPLICA_THRESHOLD": 1
-#     })
-
-#     current_metrics = fetcher.fetch_rds_metrics(datetime.now(timezone.utc) - timedelta(hours=1), datetime.now(timezone.utc))
-#     past_metrics = fetcher.fetch_rds_metrics(datetime.now(timezone.utc) - timedelta(days=7) - timedelta(hours=1) , datetime.now(timezone.utc) - timedelta(days=7))
-
-
-#     print("\n🔹 Current RDS Metrics:" , current_metrics)
-#     print("\n🔹 Past RDS Metrics:" , past_metrics)
-
-#     anomalies = fetcher.detect_rds_anomalies(current_metrics, past_metrics)
-
-#     print("\n🔹 Anomalies Detected:",anomalies)
-    # print(anomalies)
-    # cluster_names = ["atlas-driver-v1-cluster", "atlas-customer-cluster-v1-cluster"]
-    # all_instances = fetcher.get_all_rds_instances()
-    # print(fetcher.get_instance_roles_and_clusters(all_instances))
-
 
 
 

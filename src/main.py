@@ -1,141 +1,50 @@
-import uvicorn
+import re
 import logging
-from fastapi import Depends, FastAPI, BackgroundTasks, Query, Form, Request, HTTPException
-from apscheduler.schedulers.background import BackgroundScheduler
-from datetime import datetime
+import uvicorn
+import requests
 import pytz
+from apscheduler.schedulers.background import BackgroundScheduler
+from fastapi import Depends, FastAPI, BackgroundTasks, Query, Form, Request, HTTPException
+from fastapi.responses import JSONResponse, HTMLResponse
+
 from metrics_fetcher import MetricsFetcher
 from load_config import load_config
-from fastapi.responses import JSONResponse, HTMLResponse
 from slack import SlackMessenger
 from home import home_res
-from master_oogway import get_master_oogway_insights,get_master_oogway_summarise_text,call_dolphin
-import re
-import requests
+from master_oogway import (
+    get_master_oogway_insights,
+    get_master_oogway_summarise_text,
+    call_dolphin
+)
 
-# Load Configuration
+
+# -------------------- Load Configuration -------------------- #
 config = load_config()
 SLACK_THREAD_API = config.get("SLACK_THREAD_API")
 SLACK_BOT_TOKEN = config.get("SLACK_BOT_TOKEN")
 SCHEDULE_INTERVAL_DAYS = config.get("SCHEDULE_INTERVAL_DAYS", 1)
 SCHEDULE_TIME = config.get("SCHEDULE_TIME", "00:00")
 TIME_ZONE = config.get("TIME_ZONE", "Asia/Kolkata")
-ALLOWED_USER_IDS = config.get("ALLOWED_USER_IDS", [])
+ALLOWED_USER_IDS = set(config.get("ALLOWED_USER_IDS", []))
+IGNORED_USER_IDS = set(config.get("IGNORED_USER_IDS", []))
 HOST = config.get("HOST", "localhost")
 PORT = config.get("PORT", 8000)
 ALERT_CHANNEL_NAME = config.get("ALERT_CHANNEL_NAME", "#somechannel")
 SLACK_USER_API = "https://slack.com/api/users.info"
-IGNORED_USER_IDS = config.get("IGNORED_USER_IDS", [])
+API_KEYS = set(config.get("API_KEYS", []))  # API Keys should be stored securely
+API_ENDPOINT = config.get("API_ENDPOINT", "")
 
 IST = pytz.timezone(TIME_ZONE)
 SCHEDULE_HOUR, SCHEDULE_MINUTE = map(int, SCHEDULE_TIME.split(":"))
 
+# -------------------- Initialize FastAPI & Services -------------------- #
 app = FastAPI()
 scheduler = BackgroundScheduler(timezone=IST)
 metrics_fetcher = MetricsFetcher()
 slack_messenger = SlackMessenger(config)
-API_KEYS = config.get("API_KEYS", ["your-secure-api-key"])  # Store securely
-API_ENDPOINT = config.get("API_ENDPOINT", "")
-# ------------------------------------------------------ API Endpoints ------------------------------------------------------ #
-@app.get(f"{API_ENDPOINT}", response_class=HTMLResponse)
-def home():
-    """Returns an HTML page with Master Oogway's wisdom."""
-    return home_res()
-
-def verify_api_key(api_key: str = Query(...)):
-    if api_key not in API_KEYS:
-        raise HTTPException(status_code=403, detail="Invalid API key")
-    return api_key
-
-# Slack Events API Listener (Handles Messages)
-@app.post(f"{API_ENDPOINT}/slack/events")
-async def slack_events(request: Request, background_tasks: BackgroundTasks, api_key: str = Depends(verify_api_key)):
-    event_data = await request.json()
-    event = event_data.get("event", {})
-    user_id = event.get("user")
-    if "challenge" in event_data:
-        return JSONResponse({"challenge": event_data["challenge"]})
-    if user_id is None or user_id == event.get("bot_id"):
-        logging.warning(f"❌ Unauthorized User: {user_id}")
-        return JSONResponse({"status": "ok", "message": "Unauthorized User"})
-    
-    print("🔗 Received Slack Event:", event_data)
-    event = event_data.get("event", {})
-
-    if event.get("type") == "message":
-        background_tasks.add_task(handle_slack_message, event)
-    if event.get("type") == "app_mention":
-        background_tasks.add_task(call_oogway, event)
-    return JSONResponse({"status": "ok"})
 
 
-@app.get(f"{API_ENDPOINT}/fetch_metrics")
-def trigger_metrics_fetch(background_tasks: BackgroundTasks, api_key: str = Depends(verify_api_key)):
-    """Manually triggers metrics fetching via API (calls function directly)."""
-    logging.info("🎯 Manually Triggered Metrics Fetch")
-    background_tasks.add_task(metrics_fetcher.fetch_and_analyze_all_metrics)
-    return JSONResponse({"status": "✅ Metrics fetch started in background"})
-
-
-# Slack Slash Command (/fetch_metrics)
-@app.post(f"{API_ENDPOINT}/slack/commands")
-def handle_slash_command(
-    background_tasks: BackgroundTasks,
-    command: str = Form(...),
-    text: str = Form(""),
-    channel_id: str = Form(""),
-    thread_ts: str = Form(""),
-):
-    """Handles /fetch_metrics Slack command by calling the function directly."""
-    logging.info(f"🔗 Received Slack Command: {command} with params: {text}")
-    thread_ts = None
-    try :
-        if "thread_ts" in text:
-            thread_ts = text.split("thread_ts=")[-1]
-        if command == "/generate_current_report":
-            text = text.strip().lower()
-            time_delta = int(text.split(" ")[0]) if text else None
-            print("time_delta",time_delta)
-            # slack_messenger.send_message(text=f"Master Oogway :oogway: is  🔍 Fetching Current Metrics... You will be notified in `{ALERT_CHANNEL_NAME}` channel.",channel=channel_id,thread_ts=thread_ts)
-            background_tasks.add_task(metrics_fetcher.get_current_metrics, thread_ts=thread_ts,channel_id=channel_id, time_delta=time_delta)
-            return JSONResponse({"response_type": "in_channel", "text": "🔍 Fetching Current Metrics... You will be notified in `{ALERT_CHANNEL_NAME}` channel."})
-        
-        elif command == "/generate_5xx_0dc_report":
-            text = text.strip().lower()
-            time_delta = int(text.split(" ")[0]) if text else None
-            # slack_messenger.send_message(text=f"Master Oogway :oogway: is  🔍 Fetching 5xx or 0DC Metrics... ou will be notified in `{ALERT_CHANNEL_NAME}` channel.",channel=channel_id,thread_ts=thread_ts)
-            background_tasks.add_task(metrics_fetcher.get_current_5xx_or_0DC, thread_ts=thread_ts,channel_id=channel_id, time_delta=time_delta)
-            return JSONResponse({"response_type": "in_channel", "text": "🔍 Fetching 5xx or 0DC Metrics... You will be notified in `{ALERT_CHANNEL_NAME}` channel."})
-        
-        elif command == "/fetch_anamoly":
-            logging.info("📡 Triggering Metrics Fetch Function...")
-            args_parts = text.split(" ")
-            if len(args_parts) > 2:
-                now_time_delta = int(args_parts[0]) if args_parts[0].isdigit() else None
-                past_time_delta = int(args_parts[1]) if args_parts[1].isdigit() else None
-                time_delta = int(args_parts[2]) if args_parts[2] is not None else None
-            else :
-                now_time_delta = None
-                past_time_delta = None
-                time_delta = None
-            response_text = f":oogway: ✅ Anomaly Detection Triggered! Fetching and analyzing metrics....You will be notified in `{ALERT_CHANNEL_NAME}` channel."
-            # slack_messenger.send_message(text=response_text,channel=channel_id)
-            background_tasks.add_task(metrics_fetcher.fetch_and_analyze_all_metrics,thread_ts=thread_ts,channel_id=channel_id,now_time_delta=now_time_delta,time_delta=time_delta,time_offset_days=past_time_delta)
-            return JSONResponse({"response_type": "in_channel", "text": response_text})
-        else:
-            return JSONResponse({"response_type": "in_channel", "text": "❌ Invalid command"})
-    except Exception as e:
-        logging.error(f"❌ Error processing Slack command: {e}")
-        return JSONResponse({"response_type": "in_channel", "text": "❌ Error processing command"})
-
-
-# --------------------------------------------------------- Functions --------------------------------------------------------- #
-
-# Scheduled Function - Runs at Configured Time
-def scheduled_fetch():
-    """Fetches metrics automatically at the scheduled time."""
-    logging.info(f"⏳ Scheduled Metrics Fetch at {SCHEDULE_TIME} IST")
-    metrics_fetcher.fetch_and_analyze_all_metrics()
+# -------------------- Helper Functions -------------------- #
 
 def handle_user_auth(user_id,bot_id, user_name):
     """Handles user authentication and returns True if user is authorized."""
@@ -281,10 +190,117 @@ def call_oogway(event):
         logging.error(f"❌ Error fetching Oogway's quote: {e}")
 
 
-# Start Scheduler for Auto Trigger at Configured Time
+
+# ------------------------------------------------------ API Endpoints ------------------------------------------------------ #
+@app.get(f"{API_ENDPOINT}", response_class=HTMLResponse)
+def home():
+    """Returns an HTML page with Master Oogway's wisdom."""
+    return home_res()
+
+def verify_api_key(api_key: str = Query(...)):
+    if api_key not in API_KEYS:
+        raise HTTPException(status_code=403, detail="Invalid API key")
+    return api_key
+
+# Slack Events API Listener (Handles Messages)
+@app.post(f"{API_ENDPOINT}/slack/events")
+async def slack_events(request: Request, background_tasks: BackgroundTasks, api_key: str = Depends(verify_api_key)):
+    event_data = await request.json()
+    event = event_data.get("event", {})
+    user_id = event.get("user")
+    if "challenge" in event_data:
+        return JSONResponse({"challenge": event_data["challenge"]})
+    if user_id is None or user_id == event.get("bot_id"):
+        logging.warning(f"❌ Unauthorized User: {user_id}")
+        return JSONResponse({"status": "ok", "message": "Unauthorized User"})
+    
+    print("🔗 Received Slack Event:", event_data)
+    event = event_data.get("event", {})
+
+    if event.get("type") == "message":
+        background_tasks.add_task(handle_slack_message, event)
+    if event.get("type") == "app_mention":
+        background_tasks.add_task(call_oogway, event)
+    return JSONResponse({"status": "ok"})
+
+
+@app.get(f"{API_ENDPOINT}/fetch_metrics")
+def trigger_metrics_fetch(background_tasks: BackgroundTasks, api_key: str = Depends(verify_api_key)):
+    """Manually triggers metrics fetching via API (calls function directly)."""
+    logging.info("🎯 Manually Triggered Metrics Fetch")
+    background_tasks.add_task(metrics_fetcher.fetch_and_analyze_all_metrics)
+    return JSONResponse({"status": "✅ Metrics fetch started in background"})
+
+
+# Slack Slash Command (/fetch_metrics)
+@app.post(f"{API_ENDPOINT}/slack/commands")
+def handle_slash_command(
+    background_tasks: BackgroundTasks,
+    command: str = Form(...),
+    text: str = Form(""),
+    channel_id: str = Form(""),
+    thread_ts: str = Form(""),
+):
+    """Handles /fetch_metrics Slack command by calling the function directly."""
+    logging.info(f"🔗 Received Slack Command: {command} with params: {text}")
+    thread_ts = None
+    try :
+        if "thread_ts" in text:
+            thread_ts = text.split("thread_ts=")[-1]
+        if command == "/generate_current_report":
+            text = text.strip().lower()
+            time_delta = int(text.split(" ")[0]) if text else None
+            print("time_delta",time_delta)
+            # slack_messenger.send_message(text=f"Master Oogway :oogway: is  🔍 Fetching Current Metrics... You will be notified in `{ALERT_CHANNEL_NAME}` channel.",channel=channel_id,thread_ts=thread_ts)
+            background_tasks.add_task(metrics_fetcher.get_current_metrics, thread_ts=thread_ts,channel_id=channel_id, time_delta=time_delta)
+            return JSONResponse({"response_type": "in_channel", "text": "🔍 Fetching Current Metrics... You will be notified in `{ALERT_CHANNEL_NAME}` channel."})
+        
+        elif command == "/generate_5xx_0dc_report":
+            text = text.strip().lower()
+            time_delta = int(text.split(" ")[0]) if text else None
+            # slack_messenger.send_message(text=f"Master Oogway :oogway: is  🔍 Fetching 5xx or 0DC Metrics... ou will be notified in `{ALERT_CHANNEL_NAME}` channel.",channel=channel_id,thread_ts=thread_ts)
+            background_tasks.add_task(metrics_fetcher.get_current_5xx_or_0DC, thread_ts=thread_ts,channel_id=channel_id, time_delta=time_delta)
+            return JSONResponse({"response_type": "in_channel", "text": "🔍 Fetching 5xx or 0DC Metrics... You will be notified in `{ALERT_CHANNEL_NAME}` channel."})
+        
+        elif command == "/fetch_anamoly":
+            logging.info("📡 Triggering Metrics Fetch Function...")
+            args_parts = text.split(" ")
+            if len(args_parts) > 2:
+                now_time_delta = int(args_parts[0]) if args_parts[0].isdigit() else None
+                past_time_delta = int(args_parts[1]) if args_parts[1].isdigit() else None
+                time_delta = int(args_parts[2]) if args_parts[2] is not None else None
+            else :
+                now_time_delta = None
+                past_time_delta = None
+                time_delta = None
+            response_text = f":oogway: ✅ Anomaly Detection Triggered! Fetching and analyzing metrics....You will be notified in `{ALERT_CHANNEL_NAME}` channel."
+            # slack_messenger.send_message(text=response_text,channel=channel_id)
+            background_tasks.add_task(metrics_fetcher.fetch_and_analyze_all_metrics,thread_ts=thread_ts,channel_id=channel_id,now_time_delta=now_time_delta,time_delta=time_delta,time_offset_days=past_time_delta)
+            return JSONResponse({"response_type": "in_channel", "text": response_text})
+        else:
+            return JSONResponse({"response_type": "in_channel", "text": "❌ Invalid command"})
+    except Exception as e:
+        logging.error(f"❌ Error processing Slack command: {e}")
+        return JSONResponse({"response_type": "in_channel", "text": "❌ Error processing command"})
+
+
+
+# -------------------- Scheduled Tasks -------------------- #
+def scheduled_fetch():
+    """Fetches metrics automatically at the scheduled time."""
+    logging.info(f"⏳ Scheduled Metrics Fetch at {SCHEDULE_TIME} IST")
+    metrics_fetcher.fetch_and_analyze_all_metrics()
+
+
+# -------------------- Start Scheduler -------------------- #
 scheduler.add_job(scheduled_fetch, "cron", hour=SCHEDULE_HOUR, minute=SCHEDULE_MINUTE, timezone=IST)
-scheduler.start()
-logging.info(f"✅ Scheduler Started. Next Run: {scheduler.get_jobs()[0].next_run_time}")
+
+try:
+    scheduler.start()
+    next_run = scheduler.get_jobs()[0].next_run_time if scheduler.get_jobs() else "No jobs scheduled"
+    logging.info(f"✅ Scheduler Started. Next Run: {next_run}")
+except Exception as e:
+    logging.error(f"❌ Error starting scheduler: {e}")
 
 
 if __name__ == "__main__":
