@@ -31,6 +31,7 @@ HOST = config.get("HOST", "localhost")
 PORT = config.get("PORT", 8000)
 ALERT_CHANNEL_NAME = config.get("ALERT_CHANNEL_NAME", "#somechannel")
 SLACK_USER_API = "https://slack.com/api/users.info"
+SLACK_USERS_LIST_API = "https://slack.com/api/users.list"
 API_KEYS = set(config.get("API_KEYS", []))  # API Keys should be stored securely
 API_ENDPOINT = config.get("API_ENDPOINT", "")
 
@@ -42,6 +43,8 @@ app = FastAPI()
 scheduler = BackgroundScheduler(timezone=IST)
 metrics_fetcher = MetricsFetcher()
 slack_messenger = SlackMessenger(config)
+
+global_user_map = None  # Optional persistent cache
 
 
 # -------------------- Helper Functions -------------------- #
@@ -107,21 +110,30 @@ def extract_text_from_event(event):
     return cleaned_text
 
 
-def get_user_name(user_id, headers):
-    """Fetches the user's real name or display name from Slack API."""
-    params = {"user": user_id}
-    response = requests.get(SLACK_USER_API, headers=headers, params=params)
-    if response.status_code == 200:
-        data = response.json()
-        if data.get("ok"):
-            user = data.get("user")
-            name = user.get("real_name") or user.get("profile", {}).get("display_name") or user.get("name", user_id)
-            return name
-    logging.warning(f"❌ Failed to fetch user name for {user_id}")
-    return ""  
+
+def fetch_all_users(headers):
+    global global_user_map
+    if global_user_map is not None:
+        return global_user_map
+    user_map = {}
+    params = {"limit": 1000}
+    while True:
+        response = requests.get(SLACK_USERS_LIST_API, headers=headers, params=params)
+        if response.status_code == 200 and response.json().get("ok"):
+            for user in response.json().get("members", []):
+                name = user.get("real_name") or user.get("profile", {}).get("display_name") or user.get("name", user["id"])
+                user_map[user["id"]] = name
+            cursor = response.json().get("response_metadata", {}).get("next_cursor")
+            if not cursor:
+                break
+            params["cursor"] = cursor
+        else:
+            logging.warning(f"❌ Failed to fetch users list: {response.status_code} - {response.text}")
+            break
+    global_user_map = user_map
+    return user_map
 
 def get_thread_messages(event, return_messages=False):
-    """Fetches all messages in the Slack thread, replacing user IDs with names, ignoring U08A6MD1REK."""
     channel_id = event["channel"]
     thread_ts = event.get("thread_ts") or event["ts"]
     headers = {
@@ -133,33 +145,28 @@ def get_thread_messages(event, return_messages=False):
     response = requests.get(SLACK_THREAD_API, headers=headers, params=params)
     if response.status_code != 200 or not response.json().get("ok"):
         logging.warning(f"❌ Failed to fetch thread messages: {response.status_code} - {response.text}")
-        return ""
-
+        return "" if not return_messages else []
+    
     messages = response.json().get("messages", [])
     if return_messages:
         return messages
+    
+    user_map = fetch_all_users(headers)
     message_log = []
     user_id_pattern = r"<@U[A-Z0-9]+>"
-    user_map = {}
-    
     for msg in messages:
         user_id = msg.get("user", "Unknown")
-        if user_id in IGNORED_USER_IDS:
+        if user_id in config.get("IGNORED_USER_IDS", []):
             continue
         text = msg.get("text", "")
-        if user_id not in user_map:
-            user_map[user_id] = get_user_name(user_id, headers)
-        prefix = f"@{user_map[user_id]}: "
-
-        user_ids = re.findall(user_id_pattern, text)
-        for user_id in user_ids:
-            clean_id = user_id.strip("<@>")
-            if clean_id not in user_map:
-                user_map[clean_id] = get_user_name(clean_id, headers)
-            text = text.replace(user_id, f"@{user_map[clean_id]}")
+        prefix = f"{user_map.get(user_id, user_id)}: "
+        
+        for match in re.findall(user_id_pattern, text):
+            clean_id = match.strip("<@>")
+            text = text.replace(match, user_map.get(clean_id, clean_id))
         message_log.append(f"{prefix}{text}")
-    formatted_messages = "\n".join([f"{msg}" for msg in message_log])
-    return formatted_messages.strip()
+    
+    return "\n".join(message_log).strip()
 
 
 def call_oogway(event):
