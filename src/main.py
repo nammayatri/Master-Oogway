@@ -166,26 +166,35 @@ def call_oogway(event):
     """Fetches Oogway's wisdom and sends it as a thread reply."""
     cleaned_text = extract_text_from_event(event)
     try:
+        if "detect issue!" in cleaned_text:
+            thread_messages = get_thread_messages(event, return_messages=True)
+            print("🔍 Detecting Issue... thread text ->>", str(thread_messages))
+            slack_messenger.send_message(channel=event["channel"], text="🔍 Detecting Issue...... Please wait!!!", thread_ts=event.get("ts"))
+            handle_slack_message(event, text=str(thread_messages), channel_id=event["channel"])
+            return
+        
+        thread_text = get_thread_messages(event)
         if "please summarize!" in cleaned_text:
             print("🐢 Summarizing Text...")
             cleaned_text = cleaned_text.replace("please summarize!","").strip()
-            thread_text = get_thread_messages(event)
-            oogway_message = get_master_oogway_summarise_text(thread_text,cleaned_text)
+            oogway_message = get_master_oogway_summarise_text(thread_text, cleaned_text)
             slack_messenger.send_message(channel=event["channel"], text=oogway_message, thread_ts=event.get("ts"))
-        elif "detect issue!" in cleaned_text:
-            thread_text = str(get_thread_messages(event,return_messages=True))
-            print("🔍 Detecting Issue... thread text ->>",thread_text)
-            slack_messenger.send_message(channel=event["channel"], text="🔍 Detecting Issue...... Please wait!!!",thread_ts=event.get("ts"))
-            handle_slack_message(event,text=thread_text,channel_id=event["channel"])
+            return
         elif "usedolphin" in cleaned_text:
             cleaned_text = cleaned_text.replace("usedolphin","").strip()
             print("🐬 Fetching Dolphin's Response...")
-            dolphin_message = call_dolphin(cleaned_text)
+            # Include thread context in prompt
+            full_prompt = f"Thread context:\n{thread_text}\n\nCurrent query: {cleaned_text}"
+            dolphin_message = call_dolphin(full_prompt)
             slack_messenger.send_message(channel=event["channel"], text=dolphin_message, thread_ts=event.get("ts"))
+            return
         else:
             print("🐢 Fetching Oogway's Quote...")
-            oogway_message = get_master_oogway_insights(prompt=cleaned_text)
+            # Include thread context in prompt
+            full_prompt = f"Thread context:\n{thread_text}\n\nCurrent query: {cleaned_text}"
+            oogway_message = get_master_oogway_insights(prompt=full_prompt)
             slack_messenger.send_message(channel=event["channel"], text=oogway_message, thread_ts=event.get("ts"))
+            return
     except Exception as e:
         logging.error(f"❌ Error fetching Oogway's quote: {e}")
 

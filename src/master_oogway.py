@@ -112,15 +112,41 @@ def get_master_oogway_summarise_text(data, prompt=""):
     """
     Summarizes Slack messages while preserving important names and context.
     """
-    prompt = f"Summarize the following Slack conversation in a simple, clear way also use names of the persons in conversation if required: {data}. Additionally, {prompt}"
-    return call_gemini_api(prompt)
+    structured_prompt = (
+        f"Summarize the following Slack conversation in a simple, clear way. "
+        f"Use names of the persons in conversation when relevant. "
+        f"Identify key points, decisions, and questions raised.\n\n"
+        f"Conversation: {data}"
+    )
+    
+    if prompt:
+        structured_prompt += f"\n\nAdditional instructions: {prompt}"
+        
+    return call_gemini_api(structured_prompt)
 
 
 def get_master_oogway_insights(prompt):
     """
     Generates insights and advice from Master Oogway using the Gemini API.
+    Handles thread context if provided in the prompt.
     """
+    # Structure a better prompt for context-aware responses
+    if "Thread context:" in prompt:
+        parts = prompt.split("Current query:")
+        if len(parts) > 1:
+            thread_context = parts[0].replace("Thread context:", "").strip()
+            query = parts[1].strip()
+            structured_prompt = (
+                f"Below is a conversation thread from Slack. When answering the latest query, "
+                f"consider the full context of the conversation.\n\n"
+                f"Conversation history:\n{thread_context}\n\n"
+                f"Latest query: {query}\n\n"
+                f"Provide a response that acknowledges the context and directly addresses the latest query."
+                f"if current query is not related to the thread context, please ignore the thread context and don't say anything about it in your response."
+            )
+            return call_gemini_api(structured_prompt)
     return call_gemini_api(prompt)
+
 # ---------------------- Dolphin AI Call ---------------------- #
 def call_dolphin(prompt):
     """
