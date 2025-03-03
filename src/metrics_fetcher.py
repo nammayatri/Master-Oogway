@@ -179,7 +179,7 @@ class MetricsFetcher:
         current_time, end_time = self.time_function.get_current_fetch_time(start_time, end_time, time_delta)
         metrix_5xx_or_0DC, istio_metrics, istio_pod_wise_errors = self.app_metrics_fetcher.fetch_all_5xx__0DC_prom_metrics(start_time=current_time, end_time=end_time)
         output_dir = "anomaly_graphs" + datetime.now().strftime("%Y%m%d%H%M%S%f")
-        result = self.app_metrics_fetcher.get_5xx_or_0dc_graph(metrix_5xx_or_0DC, start_time=current_time, end_time=end_time, output_dir=output_dir)
+        result = self.app_metrics_fetcher.get_5xx_or_0dc_graph(metrix_5xx_or_0DC, istio_pod_wise_errors=istio_pod_wise_errors, start_time=current_time, end_time=end_time, output_dir=output_dir)
         current_time_ist, end_time_ist = self.time_function.convert_time(current_time.strftime("%Y-%m-%d %H:%M:%S"), from_tz="UTC"), self.time_function.convert_time(end_time.strftime("%Y-%m-%d %H:%M:%S"), from_tz="UTC")
         get_search_to_ride_metrics , _ = self.app_metrics_fetcher.get_search_to_ride_metrics(start_time=current_time, end_time=end_time, output_dir=output_dir)
         result["search_to_ride_metrics"] = get_search_to_ride_metrics
@@ -200,7 +200,7 @@ class MetricsFetcher:
 
 if __name__ == "__main__":
     metrics_fetcher = MetricsFetcher()
-    metrics_fetcher.fetch_and_analyze_all_metrics()
-    metrics_fetcher.get_current_metrics()
+    # metrics_fetcher.fetch_and_analyze_all_metrics()
+    # metrics_fetcher.get_current_metrics()
     (metrics_fetcher.get_current_5xx_or_0DC())  
 

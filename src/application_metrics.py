@@ -280,7 +280,7 @@ class ApplicationMetricsFetcher:
             shutil.rmtree(directory_path)
         
 
-    def detect_and_plot_mem_cpu_anomalies_per_pod(self, cpu_data, memory_data, output_dir="anomaly_plots"):
+    def detect_and_plot_mem_cpu_anomalies_per_pod(self, cpu_data, memory_data, output_dir="anomaly_plots",istio_error_pods=None):
         """
         Detects anomalies where n consecutive data points exceed the threshold
         and plots CPU and memory usage **only** for pods that have anomalies.
@@ -331,19 +331,22 @@ class ApplicationMetricsFetcher:
         os.makedirs(output_dir, exist_ok=True)
         cpu_pod_data = extract_values(cpu_data)
         mem_pod_data = extract_values(memory_data)
-        pods = set(cpu_pod_data.keys()).union(set(mem_pod_data.keys()))
+        pods = set(cpu_pod_data.keys()).union(mem_pod_data.keys())
+        pods = pods.intersection(istio_error_pods)
         for pod in pods:
-            cpu_anomalies, mem_anomalies = [], []
+                if any (pod.startswith(service) for service in skip_cpu_anomaly) or any (pod.startswith(service) for service in skip_memory_anomaly):
+                    continue
+            # cpu_anomalies, mem_anomalies = [], []
 
             # Check CPU anomalies
-            if pod in cpu_pod_data and not any (pod.startswith(service) for service in skip_cpu_anomaly):
-                cpu_anomalies = detect_anomalies(cpu_pod_data[pod]["values"], cpu_threshold)
-            # Check Memory anomalies
-            if pod in mem_pod_data and not any (pod.startswith(service) for service in skip_memory_anomaly):
-                mem_anomalies = detect_anomalies(mem_pod_data[pod]["values"], memory_threshold)
+            # if pod in cpu_pod_data and not any (pod.startswith(service) for service in skip_cpu_anomaly):
+            #     cpu_anomalies = detect_anomalies(cpu_pod_data[pod]["values"], cpu_threshold)
+            # # Check Memory anomalies
+            # if pod in mem_pod_data and not any (pod.startswith(service) for service in skip_memory_anomaly):
+            #     mem_anomalies = detect_anomalies(mem_pod_data[pod]["values"], memory_threshold)
 
             # **Plot only if there are anomalies**
-            if cpu_anomalies or mem_anomalies:
+            # if cpu_anomalies or mem_anomalies:
                 plt.figure(figsize=(12, 6))
                 if pod in cpu_pod_data:
                     cpu_timestamps = convert_epoch_to_time(cpu_pod_data[pod]["timestamps"])
@@ -351,18 +354,18 @@ class ApplicationMetricsFetcher:
                     cpu_numeric_timestamps = list(range(len(cpu_timestamps)))
                     plt.plot(cpu_numeric_timestamps, cpu_values, label="CPU Usage (%)", marker='o', linestyle="-", color='blue')
 
-                    if cpu_anomalies:
-                        plt.scatter([cpu_numeric_timestamps[i] for i in cpu_anomalies], 
-                                    [cpu_values[i] for i in cpu_anomalies], color='red', zorder=3, label="CPU Anomalies")
+                    # if cpu_anomalies:
+                    #     plt.scatter([cpu_numeric_timestamps[i] for i in cpu_anomalies], 
+                    #                 [cpu_values[i] for i in cpu_anomalies], color='red', zorder=3, label="CPU Anomalies")
 
                 if pod in mem_pod_data:
                     mem_timestamps = convert_epoch_to_time(mem_pod_data[pod]["timestamps"])
                     mem_values = mem_pod_data[pod]["values"]
                     mem_numeric_timestamps = list(range(len(mem_timestamps)))
                     plt.plot(mem_numeric_timestamps, mem_values, label="Memory Usage (%)", marker='o', linestyle="-", color='green')
-                    if mem_anomalies:
-                        plt.scatter([mem_numeric_timestamps[i] for i in mem_anomalies], 
-                                    [mem_values[i] for i in mem_anomalies], color='red', zorder=3, label="Memory Anomalies")
+                    # if mem_anomalies:
+                    #     plt.scatter([mem_numeric_timestamps[i] for i in mem_anomalies], 
+                    #                 [mem_values[i] for i in mem_anomalies], color='red', zorder=3, label="Memory Anomalies")
 
                 plt.xlabel("Timestamp")
                 plt.xticks(range(0, len(cpu_numeric_timestamps), 2), cpu_timestamps[::2], rotation=45, ha="right")
@@ -477,7 +480,7 @@ class ApplicationMetricsFetcher:
         istio_pod_wise_errors = filter_pod_wise_errors(istio_pod_wise_errors, threshold_5xx=self.ERROR_5XX_THRESHOLD, threshold_0dc=self.ERROR_0DC_THRESHOLD)
         return result, filtered_istio_metrics, istio_pod_wise_errors
     
-    def get_5xx_or_0dc_graph(self, service_metrics=None, start_time=None, end_time=None,output_dir="anomaly_plots"):
+    def get_5xx_or_0dc_graph(self, service_metrics=None, istio_pod_wise_errors = None,start_time=None, end_time=None,output_dir="anomaly_plots"):
         """
         Fetch all application and Istio metrics.
         """
@@ -491,6 +494,7 @@ class ApplicationMetricsFetcher:
         pod_anomalies = {}
         api_anomalies = []
         total_requests_data = None
+        istio_error_pods = list(istio_pod_wise_errors.keys())
 
         # Fetch CPU and memory data only for services that have 0DC errors
         if services_0DC:
@@ -514,7 +518,7 @@ class ApplicationMetricsFetcher:
             total_requests_data = self.fetch_metric(query, start, end, self.query_step_range)
 
         for service, data in cpu_memory_data.items():
-            res = self.detect_and_plot_mem_cpu_anomalies_per_pod(data["cpu"], data["memory"], output_dir)
+            res = self.detect_and_plot_mem_cpu_anomalies_per_pod(data["cpu"], data["memory"], output_dir, istio_error_pods)
             if res:
                 pod_anomalies[service] = res
 
@@ -579,16 +583,16 @@ class ApplicationMetricsFetcher:
                 timestamps = convert_epoch_to_time(timestamps)
                 numeric_timestamps = list(range(len(timestamps)))  # Create sequential indices
 
-                plt.plot(numeric_timestamps, values, label="Error Rate (%)", marker='o', linestyle="-", color='red')
+                plt.plot(numeric_timestamps, values, label="Error Count", marker='o', linestyle="-", color='red')
                 plt.scatter([numeric_timestamps[i] for i in anomalies], 
                             [values[i] for i in anomalies], color='red', zorder=3, label="Anomalies")
 
                 plt.xticks(numeric_timestamps[::2], timestamps[::2], rotation=45, ha="right")
                 plt.xlabel("Timestamp")
                 plt.xticks(range(0, len(timestamps), 2), timestamps[::2], rotation=45, ha="right")
-                plt.ylabel("Error Rate (%)")
+                plt.ylabel("Error Count")
                 plt.title(f"Error Rate for: {key}")
-                plt.axhline(y=api_5xx_threshold, color='orange', linestyle='--', label=f"5xx Threshold: {api_5xx_threshold}%")
+                plt.axhline(y=api_5xx_threshold, color='orange', linestyle='--', label=f"5xx Count Threshold: {api_5xx_threshold}")
                 plt.legend()
                 plt.grid(True, linestyle="--", alpha=0.5)
                 plt.tight_layout()
