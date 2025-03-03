@@ -1,11 +1,15 @@
 import re
 import logging
+import threading
 import uvicorn
 import requests
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import Depends, FastAPI, BackgroundTasks, Query, Form, Request, HTTPException
 from fastapi.responses import JSONResponse, HTMLResponse
+from typing import Dict, List, Union
+import sys
+import time
 
 from metrics_fetcher import MetricsFetcher
 from load_config import load_config
@@ -34,6 +38,8 @@ SLACK_USER_API = "https://slack.com/api/users.info"
 SLACK_USERS_LIST_API = "https://slack.com/api/users.list"
 API_KEYS = set(config.get("API_KEYS", []))  # API Keys should be stored securely
 API_ENDPOINT = config.get("API_ENDPOINT", "")
+CACHE_TTL = 3600 * config.get("CACHE_TTL", 1) 
+MAX_SIZE_BYTES = 1024 * 1024 * config.get("MAX_SIZE_MB", 10)
 
 IST = pytz.timezone(TIME_ZONE)
 SCHEDULE_HOUR, SCHEDULE_MINUTE = map(int, SCHEDULE_TIME.split(":"))
@@ -44,7 +50,8 @@ scheduler = BackgroundScheduler(timezone=IST)
 metrics_fetcher = MetricsFetcher()
 slack_messenger = SlackMessenger(config)
 
-global_user_map = None  # Optional persistent cache
+global_user_map = None
+thread_cache: Dict[tuple[str, str], Dict[str, Union[List, float]]] = {}
 
 
 # -------------------- Helper Functions -------------------- #
@@ -65,23 +72,40 @@ def handle_slack_message(event,channel_id=None,text=None):
         logging.warning(f"❌ Unauthorized User: {user_id}")
     text = text or str(event)
     thread_ts = event.get("ts")
+
     if handle_alb_5xx_error(text):
-        slack_messenger.send_message(channel=channel_id, text=f"🚨 Fetching 5xx or ODC error report. It will be sent shortly in `{ALERT_CHANNEL_NAME}`", thread_ts = thread_ts)
-        metrics_fetcher.get_current_5xx_or_0DC(thread_ts=thread_ts,channel_id=channel_id)
+        slack_messenger.send_message(
+            channel=channel_id,
+            text="🚨 ALB 5xx or ODC errors detected. Fetching error report and service performance metrics — results will be posted shortly.",
+            thread_ts=thread_ts
+        )
+        metrics_fetcher.get_current_5xx_or_0DC(thread_ts=thread_ts, channel_id=channel_id)
         return
+
     if handle_redis_memory_error(text):
-        slack_messenger.send_message(channel=channel_id, text=f"🚨 Fetching Redis and Application report. It will be sent shortly in `{ALERT_CHANNEL_NAME}`", thread_ts=thread_ts)
-        metrics_fetcher.get_current_metrics(thread_ts=thread_ts,channel_id=channel_id)
+        slack_messenger.send_message(
+            channel=channel_id,
+            text="🚨 Redis memory issue detected. Fetching Redis and application performance metrics — results will be posted shortly.",
+            thread_ts=thread_ts
+        )
+        metrics_fetcher.get_current_metrics(thread_ts=thread_ts, channel_id=channel_id)
         return
-    
+
     if handle_db_alerts(text):
-        slack_messenger.send_message(channel=channel_id, text=f"🚨 Fetching and analyzing all metrics. It will be sent shortly in `{ALERT_CHANNEL_NAME}`", thread_ts=thread_ts)
-        metrics_fetcher.get_current_metrics(thread_ts=thread_ts,channel_id=channel_id)
-    
+        slack_messenger.send_message(
+            channel=channel_id,
+            text="🚨 Database alert detected `High CPU`. Fetching database and application performance metrics — results will be posted shortly.",
+            thread_ts=thread_ts
+        )
+        metrics_fetcher.get_current_metrics(thread_ts=thread_ts, channel_id=channel_id)
+
     if handle_ride_to_search(text):
-        slack_messenger.send_message(channel=channel_id, text=f"🚨 Fetching and analyzing all metrics. It will be sent shortly in `{ALERT_CHANNEL_NAME}`", thread_ts=thread_ts)
-        metrics_fetcher.get_current_5xx_or_0DC(thread_ts=thread_ts,channel_id=channel_id)
-    return
+        slack_messenger.send_message(
+            channel=channel_id,
+            text="🚨 Significant drop detected in ride-to-search ratio. Fetching service performance and error metrics — results will be posted shortly.",
+            thread_ts=thread_ts
+        )
+        metrics_fetcher.get_current_5xx_or_0DC(thread_ts=thread_ts, channel_id=channel_id)
 
 
 def handle_ride_to_search(text):
@@ -114,40 +138,81 @@ def extract_text_from_event(event):
 def fetch_all_users(headers):
     global global_user_map
     if global_user_map is not None:
+        logging.info("🌐 Using cached user map")
         return global_user_map
     user_map = {}
-    params = {"limit": 1000}
-    while True:
-        response = requests.get(SLACK_USERS_LIST_API, headers=headers, params=params)
-        if response.status_code == 200 and response.json().get("ok"):
-            for user in response.json().get("members", []):
-                name = user.get("real_name") or user.get("profile", {}).get("display_name") or user.get("name", user["id"])
-                user_map[user["id"]] = name
-            cursor = response.json().get("response_metadata", {}).get("next_cursor")
-            if not cursor:
-                break
-            params["cursor"] = cursor
-        else:
-            logging.warning(f"❌ Failed to fetch users list: {response.status_code} - {response.text}")
-            break
+    params = {"limit": 1000}  # 500 users fit in one call
+    logging.info("🔍 Fetching all users from Slack...")
+    response = requests.get(SLACK_USERS_LIST_API, headers=headers, params=params)
+    if response.status_code == 200 and response.json().get("ok"):
+        for user in response.json().get("members", []):
+            name = user.get("real_name") or user.get("profile", {}).get("display_name") or user.get("name", user["id"])
+            user_map[user["id"]] = name
+    else:
+        logging.warning(f"❌ Failed to fetch users: {response.status_code} - {response.text}")
     global_user_map = user_map
     return user_map
 
-def get_thread_messages(event, return_messages=False):
+def get_object_size(obj, seen=None) -> int:
+    """Recursively estimate the memory size of an object in bytes."""
+    if seen is None:
+        seen = set()
+    obj_id = id(obj)
+    if obj_id in seen:
+        return 0
+    seen.add(obj_id)
+    size = sys.getsizeof(obj)
+    if isinstance(obj, dict):
+        size += sum(get_object_size(k, seen) + get_object_size(v, seen) for k, v in obj.items())
+    elif isinstance(obj, (list, tuple, set)):
+        size += sum(get_object_size(item, seen) for item in obj)
+    return size
+
+def prune_thread_cache(force=False):
+    """Prune threads exceeding 10MB or older than 1 hour."""
+    current_time = time.time()
+    to_remove = []
+    for key, entry in thread_cache.items():
+        age_seconds = current_time - entry["timestamp"]
+        is_expired = age_seconds > CACHE_TTL
+        entry_size = get_object_size(entry)
+        is_oversized = entry_size > MAX_SIZE_BYTES
+        if force or is_expired or is_oversized:
+            to_remove.append((key, age_seconds, entry_size))
+    for key, age, size in to_remove:
+        del thread_cache[key]
+        logging.info(f"Pruned thread {key}: age={age:.1f}s, size={size / (1024 * 1024):.2f}MB")
+    if to_remove:
+        logging.info(f"Pruned {len(to_remove)} threads from cache")
+
+def get_thread_messages(event, return_messages=False) -> Union[str, List]:
+    """Fetches thread messages with caching, replacing user IDs with names."""
     channel_id = event["channel"]
     thread_ts = event.get("thread_ts") or event["ts"]
-    headers = {
-        "Authorization": f"Bearer {SLACK_BOT_TOKEN}",
-        "Content-Type": "application/json"
-    }
+    cache_key = (channel_id, thread_ts)
+    headers = {"Authorization": f"Bearer {SLACK_BOT_TOKEN}", "Content-Type": "application/json"}
     
-    params = {"channel": channel_id, "ts": thread_ts}
-    response = requests.get(SLACK_THREAD_API, headers=headers, params=params)
-    if response.status_code != 200 or not response.json().get("ok"):
-        logging.warning(f"❌ Failed to fetch thread messages: {response.status_code} - {response.text}")
-        return "" if not return_messages else []
-    
-    messages = response.json().get("messages", [])
+    cached_entry = thread_cache.get(cache_key)
+    current_time = time.time()
+    if cached_entry and (current_time - cached_entry["timestamp"]) < CACHE_TTL:
+        logging.info(f"Cache hit for thread {thread_ts} in channel {channel_id}")
+        messages = cached_entry["messages"]
+    else:
+        # Cache miss or expired: fetch from Slack API
+        logging.info(f"Cache miss for thread {thread_ts} in channel {channel_id}")
+        params = {"channel": channel_id, "ts": thread_ts}
+        response = requests.get(SLACK_THREAD_API, headers=headers, params=params)
+        if response.status_code != 200 or not response.json().get("ok"):
+            logging.warning(f"❌ Failed to fetch thread: {response.status_code} - {response.text}")
+            return "" if not return_messages else []
+        
+        messages = response.json().get("messages", [])
+        # Store in cache
+        thread_cache[cache_key] = {
+            "messages": messages,
+            "timestamp": current_time
+        }
+        logging.info(f"Cache updated for thread {thread_ts} in channel {channel_id}")
     if return_messages:
         return messages
     
@@ -156,11 +221,10 @@ def get_thread_messages(event, return_messages=False):
     user_id_pattern = r"<@U[A-Z0-9]+>"
     for msg in messages:
         user_id = msg.get("user", "Unknown")
-        if user_id in config.get("IGNORED_USER_IDS", []):
+        if user_id in config.get("IGNORED_USER_IDS", []):  # Assuming config exists
             continue
         text = msg.get("text", "")
         prefix = f"{user_map.get(user_id, user_id)}: "
-        
         for match in re.findall(user_id_pattern, text):
             clean_id = match.strip("<@>")
             text = text.replace(match, user_map.get(clean_id, clean_id))
@@ -205,7 +269,13 @@ def call_oogway(event):
     except Exception as e:
         logging.error(f"❌ Error fetching Oogway's quote: {e}")
 
-
+def start_pruning():
+    logging.info("🌳 Starting Cache Pruning Thread...")
+    def periodic_prune():
+        while True:
+            prune_thread_cache()
+            time.sleep(60*20)  # Prune every 20 minutes
+    threading.Thread(target=periodic_prune, daemon=True).start()
 
 # ------------------------------------------------------ API Endpoints ------------------------------------------------------ #
 @app.get(f"{API_ENDPOINT}", response_class=HTMLResponse)
@@ -320,4 +390,5 @@ except Exception as e:
 
 
 if __name__ == "__main__":
+    start_pruning()
     uvicorn.run(app, host=HOST, port=PORT)
