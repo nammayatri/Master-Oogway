@@ -131,7 +131,7 @@ class MetricsFetcher:
         self.app_metrics_fetcher.delete_directory(output_dir)
         return data
 
-    def generate_slack_alert_text(self, metrics_data, start_time=None, end_time=None):
+    def generate_slack_alert_text(self, metrics_data, pod_metrics, start_time=None, end_time=None):
         alert_messages = []
 
         # Include time range if provided
@@ -141,7 +141,20 @@ class MetricsFetcher:
 
         # No errors case
         if not metrics_data:
-            return f"✅ No errors were detected in the time range ({start_time} → {end_time}) 🎉."
+            if not pod_metrics:
+                return f"✅ No errors were detected in the time range ({start_time} → {end_time}) 🎉."
+            else:
+                Threshold_5xx = self.config.get("ERROR_5XX_THRESHOLD", 200)
+                Threshold_0DC = self.config.get("ERROR_0DC_THRESHOLD", 200)
+                alert_messages.append(f"⚠️ *Pod Errors Detected* in the time range ({start_time} → {end_time}) 🚨\n")
+                for pod, metrics in pod_metrics.items():
+                    if metrics.get("0DC", 0) > Threshold_0DC:
+                        alert_messages.append(
+                            f"   - *Pod*: {pod}\n"
+                            f"   - 0DC Errors: {metrics.get('0DC', 0)}\n"
+                            f"   - 5xx Errors: {metrics.get('5xx', 0)}\n"
+                        )
+                return "\n".join(alert_messages)
 
         for service, metrics in metrics_data.items():
             total_5xx = metrics.get("5xx", 0)  # Total 5xx errors
@@ -183,7 +196,7 @@ class MetricsFetcher:
         current_time_ist, end_time_ist = self.time_function.convert_time(current_time.strftime("%Y-%m-%d %H:%M:%S"), from_tz="UTC"), self.time_function.convert_time(end_time.strftime("%Y-%m-%d %H:%M:%S"), from_tz="UTC")
         get_search_to_ride_metrics , _ = self.app_metrics_fetcher.get_search_to_ride_metrics(start_time=current_time, end_time=end_time, output_dir=output_dir)
         result["search_to_ride_metrics"] = get_search_to_ride_metrics
-        slack_message = self.generate_slack_alert_text(istio_metrics, start_time=current_time_ist, end_time=end_time_ist)
+        slack_message = self.generate_slack_alert_text(istio_metrics,istio_pod_wise_errors, start_time=current_time_ist, end_time=end_time_ist)
         print("slack_message", slack_message)
         result["istio_metrics"] = istio_metrics
         result["istio_pod_wise_errors"] = istio_pod_wise_errors
@@ -195,6 +208,7 @@ class MetricsFetcher:
         else:
             self.slack.send_message(slack_message, thread_ts=thread_ts, channel=channel_id)
         self.app_metrics_fetcher.delete_directory(output_dir)
+        self.app_metrics_fetcher.delete_directory(get_search_to_ride_metrics)
         return result
 
 
