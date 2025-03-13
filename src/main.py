@@ -379,7 +379,7 @@ def scheduled_fetch():
 
 
 # -------------------- Start Scheduler -------------------- #
-scheduler.add_job(scheduled_fetch, "cron", hour=SCHEDULE_HOUR, minute=SCHEDULE_MINUTE, timezone=IST)
+scheduler.add_job(scheduled_fetch, "cron", day=f"*/{SCHEDULE_INTERVAL_DAYS}", hour=SCHEDULE_HOUR, minute=SCHEDULE_MINUTE, timezone=IST)
 
 try:
     scheduler.start()

@@ -431,7 +431,7 @@ class ApplicationMetricsFetcher:
             point_sum = 0
             max_sum = 0
             count = 0
-            for i in range(len(values) - 1):
+            for i in range(len(values)):
                 if values[i] > threshold:
                     count += 1
                     if count >= self.error_consecutive_datapoints:
@@ -441,12 +441,18 @@ class ApplicationMetricsFetcher:
                     max_sum = max(max_sum, point_sum)
                     point_sum = 0
                     count = 0
-            return anomalies , max_sum
+            max_sum = max(max_sum, point_sum)
+            return anomalies, max_sum
         
-        def filter_pod_wise_errors(data , threshold_5xx = 10, threshold_0dc = 10):
+        def should_skip_error_check(pod_name):
+            return any(pod_name.startswith(service) for service in self.skip_error_check_services)
+
+        def filter_pod_wise_errors(data, threshold_5xx=10, threshold_0dc=10):
             pods_data = {}
             for pod, values in data.items():
-                if values.get("5xx") > threshold_5xx or values.get("0DC") > threshold_0dc:
+                errors_5xx = values.get("5xx", 0)
+                errors_0dc = values.get("0DC", 0)
+                if (errors_5xx > threshold_5xx or errors_0dc > threshold_0dc) and not should_skip_error_check(pod):
                     pods_data[pod] = values
             return pods_data
         
@@ -540,7 +546,7 @@ class ApplicationMetricsFetcher:
             """Check for anomalies in API error rates."""
             anomalies = []
             count = 0
-            for i in range(len(values) - 1):
+            for i in range(len(values)):
                 if values[i] > threshold:
                     count += 1
                     if count >= self.error_consecutive_datapoints:

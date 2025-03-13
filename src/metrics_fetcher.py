@@ -209,7 +209,6 @@ class MetricsFetcher:
             self.slack.send_5xx_0dc_report(result, thread_ts=thread_ts, channel_id=channel_id, message=slack_message)
         else:
             self.slack.send_message(slack_message, thread_ts=thread_ts, channel=channel_id)
-        time.sleep(1)
         self.app_metrics_fetcher.delete_directory(output_dir)
         self.app_metrics_fetcher.delete_directory(get_search_to_ride_metrics)
         return result
