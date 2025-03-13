@@ -116,6 +116,8 @@ class MetricsFetcher:
             active_deployments = self.get_recent_active_deployments()
             file_path = self.slack.create_anomaly_pdf({"rds_anomaly": rds_anomaly, "redis_anomaly": redis_anomaly, "application_anomaly": application_anomaly, "active_deployments": active_deployments,"search_to_ride_metrics":[ride_to_search_anomaly_current,ride_to_search_anomaly_past]}, start_date_time, end_date_time)
             self.slack.send_pdf_report_on_slack(file_path=file_path, thread_ts=thread_ts, channel_id=channel_id)
+        else:
+            print("No anomalies detected in the specified time range 🚫.")
         self.app_metrics_fetcher.delete_directory(output_dir)
         return
 
@@ -209,7 +211,6 @@ class MetricsFetcher:
             self.slack.send_5xx_0dc_report(result, thread_ts=thread_ts, channel_id=channel_id, message=slack_message)
         else:
             self.slack.send_message(slack_message, thread_ts=thread_ts, channel=channel_id)
-        time.sleep(1)
         self.app_metrics_fetcher.delete_directory(output_dir)
         self.app_metrics_fetcher.delete_directory(get_search_to_ride_metrics)
         return result
@@ -217,7 +218,7 @@ class MetricsFetcher:
 
 if __name__ == "__main__":
     metrics_fetcher = MetricsFetcher()
-    # metrics_fetcher.fetch_and_analyze_all_metrics()
+    metrics_fetcher.fetch_and_analyze_all_metrics()
     # metrics_fetcher.get_current_metrics()
-    (metrics_fetcher.get_current_5xx_or_0DC())  
+    # (metrics_fetcher.get_current_5xx_or_0DC())  
 

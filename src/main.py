@@ -70,7 +70,7 @@ def handle_slack_message(event,channel_id=None,text=None):
     bot_id = event.get("bot_id")
     if not handle_user_auth(user_id, bot_id, user_name) and text is None:
         logging.warning(f"❌ Unauthorized User: {user_id}")
-    text = text or str(event)
+    text = (text or str(event)).lower()
     thread_ts = event.get("ts")
 
     if handle_alb_5xx_error(text):
@@ -379,7 +379,7 @@ def scheduled_fetch():
 
 
 # -------------------- Start Scheduler -------------------- #
-scheduler.add_job(scheduled_fetch, "cron", hour=SCHEDULE_HOUR, minute=SCHEDULE_MINUTE, timezone=IST)
+scheduler.add_job(scheduled_fetch, "cron", day=f"*/{SCHEDULE_INTERVAL_DAYS}", hour=SCHEDULE_HOUR, minute=SCHEDULE_MINUTE, timezone=IST)
 
 try:
     scheduler.start()

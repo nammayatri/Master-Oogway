@@ -211,7 +211,7 @@ class RDSMetricsFetcher:
     def detect_rds_anomalies(self, current_metrics, past_metrics):
         """Compare current and past RDS metrics to detect anomalies."""
         anomalies = []
-
+        print("🔍 Detecting RDS anomalies...")
         for cluster_name, current_cluster in current_metrics.items():
             past_cluster = past_metrics.get(cluster_name, {})
 
