@@ -294,13 +294,17 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks, api_
     event_data = await request.json()
     event = event_data.get("event", {})
     user_id = event.get("user")
+    bot_id = event.get("bot_id")
+    
     if "challenge" in event_data:
         return JSONResponse({"challenge": event_data["challenge"]})
-    if user_id is None or user_id == event.get("bot_id"):
-        logging.warning(f"❌ Unauthorized User: {user_id}")
-        return JSONResponse({"status": "ok", "message": "Unauthorized User"})
     
     print("🔗 Received Slack Event:", event_data)
+    if (user_id is None and bot_id is None) or (user_id in IGNORED_USER_IDS or bot_id in IGNORED_USER_IDS):
+        reason = "No valid user or bot" if (user_id is None and bot_id is None) else "Ignored User or Bot"
+        logging.warning(f"❌ {reason}: user_id={user_id}, bot_id={bot_id}, event={event}")
+        return JSONResponse({"status": "ok", "message": reason})
+    
     event = event_data.get("event", {})
 
     if event.get("type") == "message":
