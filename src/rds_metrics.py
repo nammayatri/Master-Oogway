@@ -2,6 +2,9 @@ import boto3
 from datetime import datetime, timedelta, timezone
 import json
 from time_function import TimeFunction
+import matplotlib.pyplot as plt  # Added for graph generation
+import os
+from load_config import load_config
 
 class RDSMetricsFetcher:
     def __init__(self, config):
@@ -12,6 +15,7 @@ class RDSMetricsFetcher:
         self.default_period = int(config.get("DEFAULT_PERIOD", 60))  
         self.cluster_identifiers = config.get("RDS_CLUSTER_IDENTIFIERS", [])
         self.cpu_threshold = config.get("RDS_CPU_DIFFERENCE_THRESHOLD", 10)
+        self.max_cpu_threshold = config.get("RDS_MAX_CPU_THRESHOLD", 80)
         self.conn_threshold = config.get("RDS_CONNECTIONS_DIFFERENCE_THRESHOLD", 100)
         self.replica_threshold = config.get("REPLICA_THRESHOLD", 1)
         self.time_function = TimeFunction(config)
@@ -69,7 +73,7 @@ class RDSMetricsFetcher:
             EndTime=end_time,
             ScanBy="TimestampAscending"
         )
-
+        data_points = []
         # ✅ Get instance-to-cluster mapping
         instance_cluster_mapping = self.get_instance_roles_and_clusters(instances)
 
@@ -109,6 +113,12 @@ class RDSMetricsFetcher:
                 metrics_data[cluster_name]["Instances"][instance_id] = {"Role": role}
 
             if result["Id"].startswith("cpu"):
+                data_points.append({
+                    "Id": result["Id"],
+                    "cluster_name": cluster_name,
+                    "Timestamps": result["Timestamps"],
+                    "Values": result["Values"]
+                })
                 metrics_data[cluster_name]["Instances"][instance_id]["CPUUtilization"] = avg_value
                 if role == "Replica":
                     metrics_data[cluster_name]["ReplicaCount"] += 1
@@ -124,7 +134,51 @@ class RDSMetricsFetcher:
                 elif role == "Writer":
                     metrics_data[cluster_name]["TotalWriterConnections"] += avg_value
 
-        return metrics_data
+        return metrics_data, data_points
+
+    def generate_rds_metric_graphs(self, metric_data_results, start_time, end_time, output_dir="graphs", threshold=80):
+        """
+        Generate graphs for the given metric data results only if at least two points exceed the threshold.
+        """
+        print("📊 Generating graphs for metrics...")
+        threshold = self.max_cpu_threshold if self.max_cpu_threshold else threshold
+        results = []
+        for result in metric_data_results:
+            if not result["Values"]:
+                continue  # Skip instances with no data
+
+            # Check if at least two points exceed the threshold
+            values_above_threshold = [value for value in result["Values"] if value > threshold]
+            if len(values_above_threshold) < 2:
+                print(f"⚠️ Skipping graph for {result['Id']} as less than 2 points exceed the threshold of {threshold}%.")
+                continue
+
+            timestamps = result["Timestamps"]
+            values = result["Values"]
+            metric_id = result["Id"]
+            cluster_name = result["cluster_name"]
+
+            # Sort data by timestamps
+            sorted_data = sorted(zip(timestamps, values))
+            timestamps, values = zip(*sorted_data)
+
+            # Plot the graph
+            plt.figure(figsize=(10, 6))
+            plt.plot(timestamps, values, marker="o", label=metric_id)
+            plt.title(f"(Cluster: {cluster_name}) | {metric_id}",fontsize=20, fontweight="bold")
+            plt.xlabel("Timestamp")
+            plt.ylabel("Value")
+            plt.grid(True)
+            plt.legend()
+            plt.tight_layout()
+            os.makedirs(output_dir, exist_ok=True)
+            filename = os.path.join(output_dir, f"{metric_id}_{start_time.strftime('%Y%m%d_%H%M')}_{end_time.strftime('%Y%m%d_%H%M')}.png")
+            plt.savefig(filename)
+            results.append(filename)
+            print(f"✅ Graph saved: {filename}")
+            plt.close()
+        print("📊 Graph generation completed.")
+        return results
 
     def get_all_rds_instances(self):
         """Retrieve all RDS instances from CloudWatch."""
@@ -258,7 +312,15 @@ class RDSMetricsFetcher:
 
 
 
-
+# if __name__ == "__main__":
+#     # Example usage
+#     config = load_config()
+#     rds_metrics_fetcher = RDSMetricsFetcher(config)
+#     current_time = datetime.now(timezone.utc)
+#     past_time = current_time - timedelta(hours=1)
+#     current_metrics, data_points = rds_metrics_fetcher.fetch_rds_metrics()
+#     rds_metrics_fetcher.generate_rds_metric_graphs(data_points, past_time, current_time)
+#     print(current_metrics)
 
 
 

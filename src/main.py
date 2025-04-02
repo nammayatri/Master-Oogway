@@ -341,16 +341,16 @@ def handle_slash_command(
             text = text.strip().lower()
             time_delta = int(text.split(" ")[0]) if text else None
             print("time_delta",time_delta)
-            # slack_messenger.send_message(text=f"Master Oogway :oogway: is  🔍 Fetching Current Metrics... You will be notified in `{ALERT_CHANNEL_NAME}` channel.",channel=channel_id,thread_ts=thread_ts)
+            # slack_messenger.send_message(text=f"Master Oogway :oogway: is  🔍 Fetching Current Metrics...  Results will be posted here soon.",channel=channel_id,thread_ts=thread_ts)
             background_tasks.add_task(metrics_fetcher.get_current_metrics, thread_ts=thread_ts,channel_id=channel_id, time_delta=time_delta)
-            return JSONResponse({"response_type": "in_channel", "text": "🔍 Fetching Current Metrics... You will be notified in `{ALERT_CHANNEL_NAME}` channel."})
+            return JSONResponse({"response_type": "in_channel", "text": "🔍 Fetching Current Metrics...  Results will be posted here soon."})
         
         elif command == "/generate_5xx_0dc_report":
             text = text.strip().lower()
             time_delta = int(text.split(" ")[0]) if text else None
             # slack_messenger.send_message(text=f"Master Oogway :oogway: is  🔍 Fetching 5xx or 0DC Metrics... ou will be notified in `{ALERT_CHANNEL_NAME}` channel.",channel=channel_id,thread_ts=thread_ts)
             background_tasks.add_task(metrics_fetcher.get_current_5xx_or_0DC, thread_ts=thread_ts,channel_id=channel_id, time_delta=time_delta)
-            return JSONResponse({"response_type": "in_channel", "text": "🔍 Fetching 5xx or 0DC Metrics... You will be notified in `{ALERT_CHANNEL_NAME}` channel."})
+            return JSONResponse({"response_type": "in_channel", "text": "🔍 Fetching 5xx or 0DC Metrics...  Results will be posted here soon."})
         
         elif command == "/fetch_anamoly":
             logging.info("📡 Triggering Metrics Fetch Function...")
@@ -363,7 +363,7 @@ def handle_slash_command(
                 now_time_delta = None
                 past_time_delta = None
                 time_delta = None
-            response_text = f":oogway: ✅ Anomaly Detection Triggered! Fetching and analyzing metrics....You will be notified in `{ALERT_CHANNEL_NAME}` channel."
+            response_text = f":oogway: ✅ Anomaly Detection Triggered! Fetching and analyzing metrics.... Results will be posted here soon."
             # slack_messenger.send_message(text=response_text,channel=channel_id)
             background_tasks.add_task(metrics_fetcher.fetch_and_analyze_all_metrics,thread_ts=thread_ts,channel_id=channel_id,now_time_delta=now_time_delta,time_delta=time_delta,time_offset_days=past_time_delta)
             return JSONResponse({"response_type": "in_channel", "text": response_text})

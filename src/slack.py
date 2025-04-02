@@ -282,9 +282,9 @@ class SlackMessenger:
         return file_path
     
 
-    def generate_current_report_and_send_on_slack(self,data, filename="System_Metrics_Report.pdf",thread_ts=None,channel_id=None):
+    def generate_current_report_and_send_on_slack(self, data, filename="System_Metrics_Report.pdf", thread_ts=None, channel_id=None):
         """
-        Generates a structured PDF report and sends it to Slack.
+        Generates a structured PDF report and sends it to Slack, embedding RDS and Redis graphs.
         """
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
         file_path = temp_file.name
@@ -325,7 +325,7 @@ class SlackMessenger:
             # 📊 **Add RDS Metrics**
             if "rds_metrics" in data:
                 content.append(Paragraph("📌 RDS Metrics", header_style))
-                content.append(Spacer(20,20))
+                content.append(Spacer(20, 20))
                 for cluster, details in data["rds_metrics"].items():
                     content.append(Paragraph(f"🔹 <b> <u>{cluster} </u></b>", bold_style))
                     content.append(Spacer(1, 12))
@@ -335,7 +335,7 @@ class SlackMessenger:
                             Paragraph(instance, wrap_style),
                             values["Role"],
                             f"{values['CPUUtilization']}%",
-                            f"{values["DatabaseConnections"]}"
+                            f"{values['DatabaseConnections']}"
                         ])
                     table = Table(table_data, colWidths=[200, 80, 80, 100])
                     table.setStyle(TableStyle([
@@ -388,6 +388,28 @@ class SlackMessenger:
                 content.append(Spacer(1, 12))
                 content.append(PageBreak())
 
+             # Embed RDS Graphs
+            if "rds_graph" in data and data["rds_graph"]:
+                content.append(Paragraph("📊 RDS Graphs", header_style))
+                content.append(Spacer(1, 12))
+                for graph_path in data["rds_graph"]:
+                    if os.path.exists(graph_path):
+                        img = Image(graph_path, width=500, height=300)
+                        content.append(img)
+                        content.append(Spacer(1, 12))
+                content.append(PageBreak())
+
+            # Embed Redis Graphs
+            if "redis_graph" in data and data["redis_graph"]:
+                content.append(Paragraph("📊 Redis Graphs", header_style))
+                content.append(Spacer(1, 12))
+                for graph_path in data["redis_graph"]:
+                    if os.path.exists(graph_path):
+                        img = Image(graph_path, width=500, height=300)
+                        content.append(img)
+                        content.append(Spacer(1, 12))
+                content.append(PageBreak())
+
             # 📈 **Add Application Metrics**
             if "application_metrics" in data:
                 content.append(Paragraph("📌 Application API Metrics", header_style))
@@ -422,7 +444,7 @@ class SlackMessenger:
             return None
 
         try:
-            self.send_pdf_report_on_slack(filename, file_path,thread_ts=thread_ts,channel_id=channel_id)
+            self.send_pdf_report_on_slack(filename, file_path, thread_ts=thread_ts, channel_id=channel_id)
         except SlackApiError as e:
             logging.error(f"❌ Slack API Error (PDF Upload): {e.response['error']}")
 

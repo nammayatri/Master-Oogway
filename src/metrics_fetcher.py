@@ -44,8 +44,8 @@ class MetricsFetcher:
         """Fetch and analyze RDS metrics."""
         print("\n🚀 Fetching & Analyzing RDS Metrics...")
         current_datetime, past_datetime = self.resolve_datetime(start_date_time=start_date_time, end_date_time=end_date_time)
-        current_rds_metrics = self.rds_fetcher.fetch_rds_metrics(start_time=current_datetime[0], end_time=current_datetime[1])
-        past_rds_metrics = self.rds_fetcher.fetch_rds_metrics(start_time=past_datetime[0], end_time=past_datetime[1])
+        current_rds_metrics, _ = self.rds_fetcher.fetch_rds_metrics(start_time=current_datetime[0], end_time=current_datetime[1])
+        past_rds_metrics, _ = self.rds_fetcher.fetch_rds_metrics(start_time=past_datetime[0], end_time=past_datetime[1])
         # print(f"Anamoly Detection for RDS Metrics", self.rds_fetcher.detect_rds_anomalies(current_rds_metrics, past_rds_metrics))
         anomaly = self.rds_fetcher.detect_rds_anomalies(current_rds_metrics, past_rds_metrics)
         return anomaly
@@ -124,14 +124,19 @@ class MetricsFetcher:
     def get_current_metrics (self,start_time=None,end_time=None,time_delta=None,thread_ts=None,channel_id=None):
         current_time,end_time = self.time_function.get_current_fetch_time(start_time,end_time,time_delta)
         print(f"Current Time: {current_time} → {end_time}")
-        current_rds_metrics = self.rds_fetcher.fetch_rds_metrics(start_time=current_time, end_time=end_time)
+        current_rds_metrics, rds_data_ponts = self.rds_fetcher.fetch_rds_metrics(start_time=current_time, end_time=end_time)
         current_redis_metrics = self.redis_fetcher.get_all_redis_cluster_metrics(metrics_start_time=current_time, metrics_end_time=end_time)
         current_app_metrics = self.app_metrics_fetcher.fetch_all_prom_metrics(start_time=current_time, end_time=end_time)
         output_dir = "anomaly_graphs" + datetime.now().strftime("%Y%m%d%H%M%S%f")
+        rds_redis_output_dir = "rds_redis_graphs" + datetime.now().strftime("%Y%m%d%H%M%S%f")
+        redis_graph = self.redis_fetcher.get_redis_metrics_graphs(current_redis_metrics,output_dir=rds_redis_output_dir)
+        rds_graph = self.rds_fetcher.generate_rds_metric_graphs(rds_data_ponts,output_dir=rds_redis_output_dir,start_time=current_time,end_time=end_time)
         ride_to_search_metrics_current, _ = self.app_metrics_fetcher.get_search_to_ride_metrics(start_time=current_time, end_time=end_time, output_dir=output_dir)
-        data = {"rds_metrics":current_rds_metrics,"redis_metrics":current_redis_metrics,"application_metrics":current_app_metrics,"search_to_ride_metrics":ride_to_search_metrics_current,"start":self.time_function.convert_time(current_time.strftime("%Y-%m-%d %H:%M:%S")),"end":self.time_function.convert_time(end_time.strftime("%Y-%m-%d %H:%M:%S"))}
+        data = {"rds_metrics":current_rds_metrics,"redis_metrics":current_redis_metrics,"application_metrics":current_app_metrics,"search_to_ride_metrics":ride_to_search_metrics_current,"start":self.time_function.convert_time(current_time.strftime("%Y-%m-%d %H:%M:%S")),"end":self.time_function.convert_time(end_time.strftime("%Y-%m-%d %H:%M:%S")),"rds_graph":rds_graph,"redis_graph":redis_graph}
         self.slack.generate_current_report_and_send_on_slack(data,thread_ts=thread_ts,channel_id=channel_id)
         self.app_metrics_fetcher.delete_directory(output_dir)
+        self.app_metrics_fetcher.delete_directory(rds_redis_output_dir)
+        print("Current Metrics Data Sent to Slack")
         return data
 
     def generate_slack_alert_text(self, metrics_data, pod_metrics, start_time=None, end_time=None):
@@ -219,6 +224,6 @@ class MetricsFetcher:
 if __name__ == "__main__":
     metrics_fetcher = MetricsFetcher()
     metrics_fetcher.fetch_and_analyze_all_metrics()
-    # metrics_fetcher.get_current_metrics()
-    # (metrics_fetcher.get_current_5xx_or_0DC())  
+    metrics_fetcher.get_current_metrics()
+    (metrics_fetcher.get_current_5xx_or_0DC())  
 

@@ -1,9 +1,13 @@
 import subprocess
 import boto3
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone as dt_timezone  # Rename timezone to avoid conflict
 import json
 import redis
+from load_config import load_config
 from time_function import TimeFunction
+import matplotlib.pyplot as plt 
+import os 
+from pytz import timezone  
 
 class RedisMetricsFetcher:
     def __init__(self,config):
@@ -18,6 +22,7 @@ class RedisMetricsFetcher:
         self.cpu_threshold = float(config.get("REDIS_CPU_DIFFERENCE_THRESHOLD", 10.0))
         self.memory_threshold = float(config.get("REDIS_MEMORY_DIFFERENCE_THRESHOLD", 10.0))
         self.capacity_threshold = float(config.get("REDIS_CAPACITY_DIFFERENCE_THRESHOLD", 10.0))
+        self.redis_cpu_memory_threshold = float(config.get("REDIS_CPU_MEMORY_THRESHOLD", 80.0))
         self.allow_instance_anomalies = config.get("ALLOW_INSTANCE_ANOMALIES", False)
         self.time_function = TimeFunction(config)
 
@@ -47,11 +52,11 @@ class RedisMetricsFetcher:
         if metrics_start_time:
             start_time = metrics_start_time
         elif self.redis_time_delta:
-            start_time = datetime.now(timezone.utc) - timedelta(**self.redis_time_delta)
+            start_time = datetime.now(dt_timezone.utc) - timedelta(**self.redis_time_delta)  # Use dt_timezone.utc
         else:
             raise ValueError("Either metrics_start_time or redis_time_delta must be provided")
         
-        end_time = metrics_end_time if metrics_end_time else datetime.now(timezone.utc)    
+        end_time = metrics_end_time if metrics_end_time else datetime.now(dt_timezone.utc)  # Use dt_timezone.utc
         period = self.default_period
 
         # Fetch Redis cluster details
@@ -78,7 +83,7 @@ class RedisMetricsFetcher:
 
         # Fetch endpoints for all instances using describe_cache_clusters
         instance_endpoints = self.get_cache_instance_endpoints(all_instances)
-
+        data_points = {}
         for node_group in node_groups:
             for member in node_group.get("NodeGroupMembers", []):
                 instance_id = member["CacheClusterId"]
@@ -89,6 +94,7 @@ class RedisMetricsFetcher:
                 instance_endpoint = endpoint_data.get("Address", member.get("ReadEndpoint", {}).get("Address", "Unknown"))
                 instance_port = endpoint_data.get("Port", 6379)  # Default Redis port if unknown
                 
+                data_points[instance_id] = {}
                 cluster_metrics[instance_id] = {
                     "Role": instance_role,
                     "Endpoint": instance_endpoint,
@@ -106,6 +112,8 @@ class RedisMetricsFetcher:
                     Statistics=["Average"]
                 )
                 cluster_metrics[instance_id]['CPUUtilization'] = round(cpu_response["Datapoints"][-1]["Average"],2) if cpu_response["Datapoints"] else None
+                data_points[instance_id]['cpu'] = cpu_response["Datapoints"]
+
                 
                 # Fetch Redis Engine CPU Utilization
                 engine_cpu_response = self.cloudwatch.get_metric_statistics(
@@ -142,6 +150,7 @@ class RedisMetricsFetcher:
                     Statistics=["Average"]
                 )
                 cluster_metrics[instance_id]['MemoryUsage'] = round(memory_response["Datapoints"][-1]["Average"],2) if memory_response["Datapoints"] else None
+                data_points[instance_id]['memory'] = memory_response["Datapoints"]
         
         # Add number of replicas
         cluster_metrics["ReplicaCount"] = sum(1 for instance in cluster_metrics if cluster_metrics[instance]["Role"] == "Replica")
@@ -154,16 +163,100 @@ class RedisMetricsFetcher:
         } for instance in master_nodes]
         
         print(f"Fetched metrics for Redis cluster {cluster_id}")
-        return cluster_metrics
+        return cluster_metrics , data_points
 
     def get_all_redis_cluster_metrics(self, metrics_start_time=None, metrics_end_time=None):
         """
-        Fetch metrics for all Redis clusters.
+        Fetch metrics for all Redis clusters and generate graphs.
         """
         all_cluster_metrics = {}
         for cluster_id in self.cluster_ids:
-            all_cluster_metrics[cluster_id] = self.get_redis_cluster_metrics(metrics_start_time, metrics_end_time, cluster_id)
+            mertrics, data_points = self.get_redis_cluster_metrics(metrics_start_time, metrics_end_time, cluster_id)
+            all_cluster_metrics[cluster_id] = mertrics
+            all_cluster_metrics[cluster_id]["data_points"] = data_points
         return all_cluster_metrics
+    
+    def get_redis_metrics_graphs(self, redis_data, output_dir="redis_graphs"):
+        for cluster_id, metrics in redis_data.items():
+            start_time = metrics["StartTime"]
+            end_time = metrics["EndTime"]
+            metric_data_results = metrics["data_points"]
+            return self.generate_metric_graphs(metric_data_results, start_time, end_time, cluster_id, output_dir,threshold=self.redis_cpu_memory_threshold)
+
+
+    def generate_metric_graphs(self, metric_data_results, start_time, end_time, cluster_id, output_dir="redis_graphs", threshold=80):
+        """
+        Generate a single graph for each instance containing all metrics with different colors.
+        Only generate graphs if two consecutive data points cross the threshold.
+        """
+        print("📊 Generating graphs for Redis metrics...")
+        os.makedirs(output_dir, exist_ok=True)
+        ist = timezone("Asia/Kolkata")  # Define IST timezone
+        result = []
+        for instance_id, metrics in metric_data_results.items():
+            if not isinstance(metrics, dict):
+                continue
+
+            metric_keys = ["cpu", "memory"]
+            metric_labels = {
+                "cpu": "CPU Utilization (%)",
+                "memory": "Memory Usage (%)"
+            }
+            colors = ["blue", "red"]
+
+            plt.figure(figsize=(14, 8))
+            should_generate_graph = False
+
+            for metric_key, color in zip(metric_keys, colors):
+                data_points = metrics.get(metric_key, [])
+                if not data_points:
+                    continue
+
+                sorted_data = sorted(
+                    [(dp["Timestamp"], dp["Average"]) for dp in data_points if "Timestamp" in dp and "Average" in dp],
+                    key=lambda x: x[0]
+                )
+                if not sorted_data:
+                    continue
+
+                timestamps, values = zip(*sorted_data)
+                timestamps = [ts.astimezone(ist).strftime("%H:%M") for ts in timestamps]  # Format to show only time
+                x_indices = range(len(timestamps))  # Use numerical indices for the x-axis
+
+                # Check if two consecutive data points cross the threshold
+                for i in range(1, len(values)):
+                    if values[i - 1] > threshold and values[i] > threshold:
+                        should_generate_graph = True
+                        break
+
+                # Plot the metric
+                plt.plot(x_indices, values, marker="o", label=metric_labels.get(metric_key, metric_key), color=color)
+                plt.xticks(x_indices, timestamps, rotation=45, fontsize=14)  # Set x-axis labels to formatted timestamps
+
+            if not should_generate_graph:
+                print(f"⚠️ Skipping graph for instance {instance_id} as no consecutive data points crossed the threshold.")
+                plt.close()
+                continue
+
+            # Add graph details
+            plt.title(f"(Cluster: {cluster_id}) | {instance_id}", fontsize=20, fontweight="bold")
+            plt.xlabel("Timestamp (IST)", fontsize=14)
+            plt.ylabel("Value (%)", fontsize=14)
+            plt.xticks(rotation=45, fontsize=14)
+            plt.yticks(fontsize=14)
+            plt.grid(True, linestyle="--", alpha=0.6)
+            plt.legend(fontsize=14)
+            plt.tight_layout()
+
+            filename = os.path.join(output_dir, f"{instance_id}_{start_time.replace(':', '').replace(' ', '_')}_{end_time.replace(':', '').replace(' ', '_')}.png")
+            plt.savefig(filename, dpi=300)
+            result.append( filename)
+            print(f"✅ Graph saved: {filename}")
+            plt.close()
+        print("📊 Graph generation completed."
+              f" Graphs saved in {output_dir} directory.")
+        return result
+
 
     # Fetch the bigkeys from Redis  
     
@@ -189,16 +282,14 @@ class RedisMetricsFetcher:
             # Parse BIGKEYS output
             bigkeys = []
             lines = output.stdout.split("\n")
-            # print(*lines, sep="\n")
             for line in lines:
                 parts = line.split()
                 if len(parts) > 1 and parts[1].lower() == "biggest":
-                    key_type = parts[2]  # Extract type (e.g., "string", "list", etc.)
+                    key_type = parts[2]
                     key_name = parts[-4].strip('"')
-                    # Extract size if available
                     size = None
                     if key_type == "string":
-                        size = int(parts[-2])  # BIGKEYS provides size for strings
+                        size = int(parts[-2])
                     elif key_type in ["list", "hash", "set", "zset", "stream", "module"]:
                         size = None
                     bigkeys.append({"key": key_name, "type": key_type, "size": size})
@@ -209,21 +300,19 @@ class RedisMetricsFetcher:
 
             client = redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
 
-            # Check the memory usage of each big key (only if BIGKEYS didn't provide size)
             filtered_bigkeys = []
             for entry in bigkeys:
                 key_name = entry["key"].strip("'").strip('"')
                 key_type = entry["type"]
                 key_size = entry["size"]
 
-                if key_size is None:  # If BIGKEYS didn't provide size, call MEMORY USAGE
+                if key_size is None:
                     key_size = client.memory_usage(key_name)
     
                     print(f"Key: {key_name}, Type: {key_type}, Size: {key_size}")
 
-                # Convert size to MB and check against threshold
                 if key_size and (key_size / (1024 * 1024)) > self.max_bigkey_size_mb:
-                    entry["size_mb"] = round(key_size / (1024 * 1024), 2)  # Store size in MB
+                    entry["size_mb"] = round(key_size / (1024 * 1024), 2)
                     filtered_bigkeys.append(entry)
 
             return filtered_bigkeys
@@ -251,7 +340,6 @@ class RedisMetricsFetcher:
             current_cluster = current_data[cluster_name]
             past_cluster = past_data.get(cluster_name, {})
 
-            # ✅ Detect if new nodes were added (Check if any node was None in past)
             for node, metrics in current_cluster.items():
                 if node.startswith("beckn-redis-cluster") and isinstance(metrics, dict):
                     past_metrics = past_cluster.get(node, {})
@@ -263,7 +351,6 @@ class RedisMetricsFetcher:
                             "Anomaly Level": "NEW_INSTANCE"
                         })
 
-            # ✅ Compute cluster-wide averages
             current_totals = {"CPU": 0, "Memory": 0, "Capacity": 0, "EngineCPU": 0}
             past_totals = {"CPU": 0, "Memory": 0, "Capacity": 0, "EngineCPU": 0}
             current_count, past_count = 0, 0
@@ -292,11 +379,9 @@ class RedisMetricsFetcher:
                     if metrics["EngineCPUUtilization"] is not None and metrics["Role"] == "Primary":
                         past_totals["EngineCPU"] += metrics["EngineCPUUtilization"]
 
-            # ✅ Compute cluster-wide averages
             current_avg = {k: v / max(1, current_count) for k, v in current_totals.items()}
             past_avg = {k: v / max(1, past_count) for k, v in past_totals.items()}
 
-            # ✅ Detect cluster-level metric spikes
             for key, threshold in [("CPU", self.cpu_threshold), 
                                 ("Memory", self.memory_threshold), 
                                 ("Capacity", self.capacity_threshold), 
@@ -312,7 +397,6 @@ class RedisMetricsFetcher:
                         "Threshold": threshold
                     })
 
-            # ✅ Detect instance-level metric spikes
             if len(anomalies) == 0 or not self.allow_instance_anomalies:
                 print(f"Skipping instance-level anomaly detection for {cluster_name} as detected anomalies: {anomalies} and allow_instance_anomalies: {self.allow_instance_anomalies}")
                 redis_anomalies.extend(anomalies)
@@ -348,3 +432,9 @@ class RedisMetricsFetcher:
             redis_anomalies.extend(anomalies)
 
         return redis_anomalies
+
+# if __name__ == "__main__":
+#     config = load_config()
+#     redis_metrics_fetcher = RedisMetricsFetcher(config)
+#     current_data = redis_metrics_fetcher.get_all_redis_cluster_metrics()
+#     redis_metrics_fetcher.get_redis_metrics_graphs(current_data)
