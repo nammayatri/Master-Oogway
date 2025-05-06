@@ -12,9 +12,7 @@ from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table,
 from reportlab.lib.enums import TA_CENTER
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
-from load_config import load_config
 from time_function import TimeFunction
-from master_oogway import get_master_oogway_quotes
 
 
 
@@ -266,7 +264,6 @@ class SlackMessenger:
         """Generate and send a PDF anomaly report to Slack."""
         initial_comment = (
             f"@here 🚨 *Master Oogway has returned with insights!* 🐢\n\n"
-            f"{message or ("*Wisdom of the day:* " + get_master_oogway_quotes())}\n\n"
             f"📎 *The latest anomaly report is attached.*"
         )
         self.client.files_upload_v2(
