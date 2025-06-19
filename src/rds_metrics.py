@@ -19,9 +19,10 @@ class RDSMetricsFetcher:
         self.conn_threshold = config.get("RDS_CONNECTIONS_DIFFERENCE_THRESHOLD", 100)
         self.replica_threshold = config.get("REPLICA_THRESHOLD", 1)
         self.time_function = TimeFunction(config)
+        self.points_to_average = int(config.get("POINTS_TO_AVERAGE", 5))  # New config for averaging points
 
     def fetch_rds_metrics(self, start_time=None, end_time=None):
-        """Fetch CPU & Database Connections metrics for all instances in the given time range."""
+        """Fetch CPU, Memory & Database Connections metrics for all instances in the given time range."""
         if not start_time:
             start_time = datetime.now(timezone.utc) - timedelta(hours=1)
         if not end_time:
@@ -36,8 +37,10 @@ class RDSMetricsFetcher:
             return {}
 
         # ✅ Prepare metric queries
-        metric_queries = [
-            {
+        metric_queries = []
+        for instance in instances:
+            # CPU metrics
+            metric_queries.append({
                 "Id": f"cpu_{instance.replace('-', '_')}",
                 "MetricStat": {
                     "Metric": {
@@ -48,10 +51,22 @@ class RDSMetricsFetcher:
                     "Period": period,
                     "Stat": "Average"
                 }
-            }
-            for instance in instances
-        ] + [
-            {
+            })
+            # Memory metrics
+            metric_queries.append({
+                "Id": f"mem_{instance.replace('-', '_')}",
+                "MetricStat": {
+                    "Metric": {
+                        "Namespace": "AWS/RDS",
+                        "MetricName": "FreeableMemory",
+                        "Dimensions": [{"Name": "DBInstanceIdentifier", "Value": instance}]
+                    },
+                    "Period": period,
+                    "Stat": "Average"
+                }
+            })
+            # Connection metrics
+            metric_queries.append({
                 "Id": f"conn_{instance.replace('-', '_')}",
                 "MetricStat": {
                     "Metric": {
@@ -62,9 +77,7 @@ class RDSMetricsFetcher:
                     "Period": period,
                     "Stat": "Average"
                 }
-            }
-            for instance in instances
-        ]
+            })
 
         # ✅ Fetch CloudWatch Metrics
         response = self.cloudwatch.get_metric_data(
@@ -100,12 +113,15 @@ class RDSMetricsFetcher:
                     "WriterCount": 0,
                     "TotalReplicaCPU": 0,
                     "TotalWriterCPU": 0,
+                    "TotalReplicaMemory": 0,
+                    "TotalWriterMemory": 0,
                     "TotalReplicaConnections": 0,
                     "TotalWriterConnections": 0
                 }
 
-            # Extract metric values
-            avg_value = round(sum(result["Values"]) / len(result["Values"]), 2)
+            # Extract metric values - use last N points for averaging
+            values = result["Values"][-self.points_to_average:] if len(result["Values"]) >= self.points_to_average else result["Values"]
+            avg_value = round(sum(values) / len(values), 2)
             role = instance_cluster_mapping.get(instance_id, {}).get("Role", "Unknown")
 
             # Add instance data
@@ -116,8 +132,8 @@ class RDSMetricsFetcher:
                 data_points.append({
                     "Id": result["Id"],
                     "cluster_name": cluster_name,
-                    "Timestamps": result["Timestamps"],
-                    "Values": result["Values"]
+                    "Timestamps": result["Timestamps"][-self.points_to_average:],
+                    "Values": values
                 })
                 metrics_data[cluster_name]["Instances"][instance_id]["CPUUtilization"] = avg_value
                 if role == "Replica":
@@ -126,6 +142,13 @@ class RDSMetricsFetcher:
                 elif role == "Writer":
                     metrics_data[cluster_name]["WriterCount"] += 1
                     metrics_data[cluster_name]["TotalWriterCPU"] += avg_value
+
+            elif result["Id"].startswith("mem"):
+                metrics_data[cluster_name]["Instances"][instance_id]["FreeableMemory"] = avg_value
+                if role == "Replica":
+                    metrics_data[cluster_name]["TotalReplicaMemory"] += avg_value
+                elif role == "Writer":
+                    metrics_data[cluster_name]["TotalWriterMemory"] += avg_value
 
             elif result["Id"].startswith("conn"):
                 metrics_data[cluster_name]["Instances"][instance_id]["DatabaseConnections"] = avg_value
@@ -221,7 +244,7 @@ class RDSMetricsFetcher:
                 for member in cluster["DBClusterMembers"]:
                     instance_id = member["DBInstanceIdentifier"]
                     if instance_id not in instance_cluster_role:
-                        instance_cluster_role[cluster_id] = {}
+                        instance_cluster_role[instance_id] = {}
                     role = "Writer" if member["IsClusterWriter"] else "Replica"
                     instance_cluster_role[instance_id]["Cluster"] = cluster_id
                     instance_cluster_role[instance_id]["Role"] = role
