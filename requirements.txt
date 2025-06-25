@@ -5,7 +5,7 @@ matplotlib==3.10.0
 pytz==2024.2
 redis==5.2.1
 reportlab==4.3.1
-requests==2.32.3
+requests==2.32.4
 uvicorn==0.34.0
 apscheduler==3.10.4
 slack_sdk==3.27.0
