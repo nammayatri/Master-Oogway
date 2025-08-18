@@ -13,8 +13,10 @@ GEMINI_MODEL = config.get("GEMINI_MODEL")
 
 # Gemini API Endpoints
 GEMINI_API_URLS = {
+    "2.5-flash": f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}",
     "2.0": f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}",
     "1.5": f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}",
+    "1.0": f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.0-flash:generateContent?key={GEMINI_API_KEY}",
 }
 
 # ReliableSoft API URL
@@ -37,6 +39,7 @@ def call_gemini_api(prompt, model=GEMINI_MODEL):
         return extract_gemini_response(response.json())
 
     except requests.RequestException as e:
+        logging.error(f"❌ Error calling Gemini API: {e}")
         if response.status_code == 429:  # Rate limit exceeded
             return call_gemini_api(prompt, model="1.5")
 
@@ -168,3 +171,6 @@ def call_dolphin(prompt):
     )
 
     return completion.choices[0].message.content
+
+
+print(get_master_oogway_insights("Thread context:Hello, how are you? Current query: What is the weather in Tokyo?"))
