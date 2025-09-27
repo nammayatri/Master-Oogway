@@ -109,22 +109,22 @@ def handle_slack_message(event,channel_id=None,text=None):
 
 
 def handle_ride_to_search(text):
-    if "ride" in text and "search" in text and "ratio" in text and "down" in text:
+    if "ride" in text and "search" in text and "ratio" in text and "down" in text and not "resolved" or "RESOLVED" in text.lower():
         return True
     return False
 
 
 def handle_db_alerts(text):
-    if "cloudwatch" in text and "alarm" in text and "atlas" in text and "high" in text and "cpu" in text:
+    if "cloudwatch" in text and "alarm" in text and "atlas" in text and "high" in text and "cpu" in text and not "resolved" or "RESOLVED" in text.lower():
         return True
 
 def handle_redis_memory_error(text):
-    if "cloudwatch" in text and "alarm" in text and "redis" in text:
+    if "cloudwatch" in text and "alarm" in text and "redis" in text and not ("resolved" or "RESOLVED" )in text.lower():
         return True
     return False
 
 def handle_alb_5xx_error(text):
-    if "cloudwatch" in text and "alarm" in text and "5xx" in text:
+    if "cloudwatch" in text and "alarm" in text and "5xx" in text and not ("resolved" or "RESOLVED") in text.lower():
         return True
     return False
 
