@@ -140,12 +140,11 @@ def get_master_oogway_insights(prompt):
             thread_context = parts[0].replace("Thread context:", "").strip()
             query = parts[1].strip()
             structured_prompt = (
-                f"Below is a conversation thread from Slack. When answering the latest query, "
-                f"consider the full context of the conversation.\n\n"
-                f"Conversation history:\n{thread_context}\n\n"
-                f"Latest query: {query}\n\n"
-                f"Provide a response that acknowledges the context and directly addresses the latest query."
-                f"if current query is not related to the thread context, please ignore the thread context and don't say anything about it in your response."
+            f"Your name is Oogway, created by Vijay Gupta. Match the tone of others and speak in Indian style."
+            f"Use the Slack conversation history to answer the latest query.\n\n"
+            f"Conversation:\n{thread_context}\n\n"
+            f"Latest query: {query}\n\n"
+            f"Reply with context-aware answer. If query is unrelated to history, ignore history."
             )
             return call_gemini_api(structured_prompt)
     return call_gemini_api(prompt)
@@ -173,4 +172,4 @@ def call_dolphin(prompt):
     return completion.choices[0].message.content
 
 
-print(get_master_oogway_insights("Thread context:Hello, how are you? Current query: What is the weather in Tokyo?"))
+print(get_master_oogway_insights("Hi Vijay, how are you?"))

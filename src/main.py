@@ -52,6 +52,8 @@ slack_messenger = SlackMessenger(config)
 
 global_user_map = None
 thread_cache: Dict[tuple[str, str], Dict[str, Union[List, float]]] = {}
+last_alert_threshold = 10 * 60 # 10 minutes
+last_alert_time = time.time()
 
 
 # -------------------- Helper Functions -------------------- #
@@ -110,21 +112,34 @@ def handle_slack_message(event,channel_id=None,text=None):
 
 def handle_ride_to_search(text):
     if "ride" in text and "search" in text and "ratio" in text and "down" in text and not "resolved" or "RESOLVED" in text.lower():
+        if time.time() - last_alert_time > last_alert_threshold:
+            last_alert_time = time.time()
+            return True
         return True
     return False
 
 
 def handle_db_alerts(text):
     if "cloudwatch" in text and "alarm" in text and "atlas" in text and "high" in text and "cpu" in text and not "resolved" or "RESOLVED" in text.lower():
+        if time.time() - last_alert_time > last_alert_threshold:
+            last_alert_time = time.time()
+            return True
         return True
+    return False
 
 def handle_redis_memory_error(text):
     if "cloudwatch" in text and "alarm" in text and "redis" in text and not ("resolved" or "RESOLVED" )in text.lower():
+        if time.time() - last_alert_time > last_alert_threshold:
+            last_alert_time = time.time()
+            return True
         return True
     return False
 
 def handle_alb_5xx_error(text):
     if "cloudwatch" in text and "alarm" in text and "5xx" in text and not ("resolved" or "RESOLVED") in text.lower():
+        if time.time() - last_alert_time > last_alert_threshold:
+            last_alert_time = time.time()
+            return True
         return True
     return False
 
