@@ -9,6 +9,6 @@ requests==2.32.3
 uvicorn==0.34.0
 apscheduler==3.10.4
 slack_sdk==3.27.0
-python-multipart
-python-multipart==0.0.9
+python-multipart==0.0.26
+python-multipart==0.0.26==0.0.9
 openai
